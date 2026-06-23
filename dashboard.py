@@ -484,9 +484,8 @@ components.html("""
 (function(){
   var BLUE='#1453F8', CREAM='#FCF6EE';
   function patch(btn){
-    if(!btn||btn.__fp)return;
-    btn.__fp=1;
-    // Style pill
+    if(!btn||btn.getAttribute('data-fp'))return;
+    btn.setAttribute('data-fp','1');
     btn.style.setProperty('background',BLUE,'important');
     btn.style.setProperty('border','none','important');
     btn.style.setProperty('border-radius','10px','important');
@@ -502,26 +501,21 @@ components.html("""
     btn.style.setProperty('overflow','hidden','important');
     btn.style.setProperty('cursor','pointer','important');
     btn.style.setProperty('position','relative','important');
-    // Hide all existing Streamlit children
     Array.from(btn.children).forEach(function(c){
       c.style.setProperty('display','none','important');
     });
-    // Inject branded content
-    if(!btn.querySelector('[data-fp]')){
-      var wrap=document.createElement('span');
-      wrap.setAttribute('data-fp','1');
-      wrap.setAttribute('aria-hidden','true');
-      wrap.style.cssText='display:flex;align-items:center;gap:8px;pointer-events:none;';
-      var ic=document.createElement('span');
-      ic.style.cssText='display:flex;align-items:center;flex-shrink:0;';
-      ic.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 12 12"><g fill="none"><line x1="0.5" y1="1.5" x2="11.5" y2="1.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="6" x2="11.5" y2="6" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="10.5" x2="11.5" y2="10.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/></g></svg>';
-      var tx=document.createElement('span');
-      tx.style.cssText='color:'+CREAM+';font-size:14px;font-weight:700;font-family:"DM Sans",sans-serif;letter-spacing:-0.2px;white-space:nowrap;line-height:1;user-select:none;';
-      tx.textContent='Fillinus';
-      wrap.appendChild(ic);
-      wrap.appendChild(tx);
-      btn.appendChild(wrap);
-    }
+    var wrap=document.createElement('span');
+    wrap.setAttribute('aria-hidden','true');
+    wrap.style.cssText='display:flex;align-items:center;gap:8px;pointer-events:none;';
+    var ic=document.createElement('span');
+    ic.style.cssText='display:flex;align-items:center;flex-shrink:0;';
+    ic.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 12 12"><g fill="none"><line x1="0.5" y1="1.5" x2="11.5" y2="1.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="6" x2="11.5" y2="6" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="10.5" x2="11.5" y2="10.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/></g></svg>';
+    var tx=document.createElement('span');
+    tx.style.cssText='color:'+CREAM+';font-size:14px;font-weight:700;font-family:"DM Sans",sans-serif;letter-spacing:-0.2px;white-space:nowrap;line-height:1;user-select:none;';
+    tx.textContent='Fillinus';
+    wrap.appendChild(ic);
+    wrap.appendChild(tx);
+    btn.appendChild(wrap);
   }
   function run(){
     try{
@@ -530,13 +524,15 @@ components.html("""
       patch(d.querySelector('[data-testid="stSidebarCollapseButton"] button'));
     }catch(e){}
   }
-  run();
+  // Interval: retry mỗi 400ms trong 12 giây đầu
+  var n=0, iv=setInterval(function(){run();if(++n>30)clearInterval(iv);},400);
+  // MutationObserver: bắt DOM thay đổi khi sidebar toggle
   try{
     new MutationObserver(run).observe(window.parent.document.body,{childList:true,subtree:true});
   }catch(e){}
 })();
 </script>
-""", height=0)
+""", height=1)
 
 # ── Topbar ────────────────────────────────────────────────────────────────────
 last_loaded = datetime.now().strftime("%d/%m/%Y %H:%M")
