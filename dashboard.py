@@ -5,6 +5,7 @@ Run: python3 -m streamlit run dashboard.py
 
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, date
@@ -293,6 +294,7 @@ st.set_page_config(
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&display=swap');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons+Round');
 
 /* ── Page background ── */
 .stApp, body {{ background: {C_BG} !important; }}
@@ -400,41 +402,69 @@ div[data-testid="stSelectbox"] > div > div {{
 }}
 [data-tooltip]:hover::after {{ opacity: 1; }}
 
-/* ── Sidebar toggle — branded hamburger pill ── */
-[data-testid="collapsedControl"] {{
+/* ── Sidebar toggle — branded pill (both states) ── */
+/* State A: sidebar COLLAPSED → open button */
+[data-testid="collapsedControl"],
+/* State B: sidebar EXPANDED → close button (DevTools confirmed selector) */
+[data-testid="stSidebarCollapseButton"] button {{
   background: {C_BLUE} !important;
   border: none !important;
   border-radius: 10px !important;
-  width: auto !important;
-  min-width: 136px !important;
+  width: 136px !important;
   height: 40px !important;
-  padding: 0 16px 0 13px !important;
-  cursor: pointer !important;
-  position: relative !important;
-  display: inline-flex !important;
+  min-width: 136px !important;
+  padding: 0 14px 0 10px !important;
+  display: flex !important;
   align-items: center !important;
-  gap: 9px !important;
-  font-size: 0 !important;
+  gap: 8px !important;
+  cursor: pointer !important;
   transition: opacity 0.15s ease !important;
   box-shadow: 0 2px 8px rgba(20,83,248,0.30) !important;
+  overflow: hidden !important;
+  position: relative !important;
 }}
-[data-testid="collapsedControl"]:hover {{ opacity: 0.88 !important; }}
-[data-testid="collapsedControl"] > *,
-[data-testid="collapsedControl"] svg {{ display: none !important; }}
-[data-testid="collapsedControl"]::before {{
-  content: "";
-  display: inline-block;
-  width: 16px;
-  min-width: 16px;
-  height: 12px;
-  flex-shrink: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 12'%3E%3Crect x='0' y='0' width='16' height='2.4' rx='1.2' fill='%23FCF6EE'/%3E%3Crect x='0' y='4.8' width='11' height='2.4' rx='1.2' fill='%23FCF6EE'/%3E%3Crect x='0' y='9.6' width='16' height='2.4' rx='1.2' fill='%23FCF6EE'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-size: contain;
+[data-testid="collapsedControl"]:hover,
+[data-testid="stSidebarCollapseButton"] button:hover {{
+  opacity: 0.85 !important;
+  background: {C_BLUE} !important;
 }}
-[data-testid="collapsedControl"]::after {{
-  content: "Fillinus";
-  display: inline-block;
+
+/* Hide Streamlit's default icon + svg in all descendants */
+[data-testid="collapsedControl"] span,
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapseButton"] button span,
+[data-testid="stSidebarCollapseButton"] button svg,
+[data-testid="stIconMaterial"] {{
+  font-size: 0 !important;
+  color: transparent !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  display: block !important;
+  visibility: hidden !important;
+}}
+
+/* Material Icons hamburger ☰ via ::before */
+[data-testid="collapsedControl"]::before,
+[data-testid="stSidebarCollapseButton"] button::before {{
+  font-family: 'Material Icons Round' !important;
+  content: "menu" !important;
+  font-size: 20px !important;
+  font-style: normal !important;
+  font-weight: 400 !important;
+  font-feature-settings: 'liga' !important;
+  -webkit-font-feature-settings: 'liga' !important;
+  color: #FCF6EE !important;
+  line-height: 1 !important;
+  flex-shrink: 0 !important;
+  visibility: visible !important;
+  display: block !important;
+}}
+
+/* Fillinus wordmark via ::after */
+[data-testid="collapsedControl"]::after,
+[data-testid="stSidebarCollapseButton"] button::after {{
+  content: "Fillinus" !important;
   color: #FCF6EE !important;
   font-size: 14px !important;
   font-weight: 700 !important;
@@ -442,9 +472,71 @@ div[data-testid="stSelectbox"] > div > div {{
   letter-spacing: -0.2px !important;
   white-space: nowrap !important;
   line-height: 1 !important;
+  visibility: visible !important;
+  display: block !important;
 }}
 </style>
 """, unsafe_allow_html=True)
+
+# ── Sidebar button JS patcher (CSS alone can't override Streamlit emotion-cache) ──
+components.html("""
+<script>
+(function(){
+  var BLUE='#1453F8', CREAM='#FCF6EE';
+  function patch(btn){
+    if(!btn||btn.__fp)return;
+    btn.__fp=1;
+    // Style pill
+    btn.style.setProperty('background',BLUE,'important');
+    btn.style.setProperty('border','none','important');
+    btn.style.setProperty('border-radius','10px','important');
+    btn.style.setProperty('width','136px','important');
+    btn.style.setProperty('height','40px','important');
+    btn.style.setProperty('min-width','136px','important');
+    btn.style.setProperty('padding','0','important');
+    btn.style.setProperty('display','flex','important');
+    btn.style.setProperty('align-items','center','important');
+    btn.style.setProperty('justify-content','center','important');
+    btn.style.setProperty('gap','8px','important');
+    btn.style.setProperty('box-shadow','0 2px 8px rgba(20,83,248,0.30)','important');
+    btn.style.setProperty('overflow','hidden','important');
+    btn.style.setProperty('cursor','pointer','important');
+    btn.style.setProperty('position','relative','important');
+    // Hide all existing Streamlit children
+    Array.from(btn.children).forEach(function(c){
+      c.style.setProperty('display','none','important');
+    });
+    // Inject branded content
+    if(!btn.querySelector('[data-fp]')){
+      var wrap=document.createElement('span');
+      wrap.setAttribute('data-fp','1');
+      wrap.setAttribute('aria-hidden','true');
+      wrap.style.cssText='display:flex;align-items:center;gap:8px;pointer-events:none;';
+      var ic=document.createElement('span');
+      ic.style.cssText='display:flex;align-items:center;flex-shrink:0;';
+      ic.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 12 12"><g fill="none"><line x1="0.5" y1="1.5" x2="11.5" y2="1.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="6" x2="11.5" y2="6" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="10.5" x2="11.5" y2="10.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/></g></svg>';
+      var tx=document.createElement('span');
+      tx.style.cssText='color:'+CREAM+';font-size:14px;font-weight:700;font-family:"DM Sans",sans-serif;letter-spacing:-0.2px;white-space:nowrap;line-height:1;user-select:none;';
+      tx.textContent='Fillinus';
+      wrap.appendChild(ic);
+      wrap.appendChild(tx);
+      btn.appendChild(wrap);
+    }
+  }
+  function run(){
+    try{
+      var d=window.parent.document;
+      patch(d.querySelector('[data-testid="collapsedControl"]'));
+      patch(d.querySelector('[data-testid="stSidebarCollapseButton"] button'));
+    }catch(e){}
+  }
+  run();
+  try{
+    new MutationObserver(run).observe(window.parent.document.body,{childList:true,subtree:true});
+  }catch(e){}
+})();
+</script>
+""", height=0)
 
 # ── Topbar ────────────────────────────────────────────────────────────────────
 last_loaded = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -520,7 +612,7 @@ with st.sidebar:
     sel_prods = st.multiselect("Product / Service", all_prods, default=all_prods)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("↺  Refresh data", use_container_width=True):
+    if st.button("↺  Refresh data", use_container_width=False):
         st.cache_data.clear()
         st.rerun()
     st.caption(f"{len(df)} total rows in DB")
@@ -640,7 +732,7 @@ with tab_overview:
 
     card_header("Revenue Over Time",
                 f"{by_month['month_str'].min()} → {by_month['month_str'].max()}")
-    st.plotly_chart(fig_area, use_container_width=True, config=PLOT_CFG)
+    st.plotly_chart(fig_area, width="stretch", config=PLOT_CFG)
     card_close()
 
     # Annual + Quarterly ──────────────────────────────────────────────────────
@@ -668,7 +760,7 @@ with tab_overview:
             yaxis=yax(),
         )
         card_header("Annual Revenue", "Current year highlighted")
-        st.plotly_chart(fig_yr, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_yr, width="stretch", config=PLOT_CFG)
         card_close()
 
     with col_b:
@@ -692,7 +784,7 @@ with tab_overview:
             yaxis=yax(),
         )
         card_header("Quarterly Revenue", "Last 12 quarters")
-        st.plotly_chart(fig_q, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_q, width="stretch", config=PLOT_CFG)
         card_close()
 
     # Year-over-Year ──────────────────────────────────────────────────────────
@@ -722,7 +814,7 @@ with tab_overview:
         yaxis=yax(title="triệu ₫"),
     )
     card_header("Year-over-Year Comparison", "Monthly revenue per year")
-    st.plotly_chart(fig_yoy, use_container_width=True, config=PLOT_CFG)
+    st.plotly_chart(fig_yoy, width="stretch", config=PLOT_CFG)
     card_close()
 
 
@@ -801,7 +893,7 @@ with tab_kpis:
                 yaxis=yax(title="%"),
             )
             card_header("Gross & Net Margin Trend", "Monthly %")
-            st.plotly_chart(fig_margin, use_container_width=True, config=PLOT_CFG)
+            st.plotly_chart(fig_margin, width="stretch", config=PLOT_CFG)
             card_close()
 
         with fc2:
@@ -819,7 +911,7 @@ with tab_kpis:
                 yaxis=yax(title="triệu ₫"),
             )
             card_header("Net Cash Flow by Month", "Cash In − Cash Out · xanh=dương, đỏ=âm")
-            st.plotly_chart(fig_cf, use_container_width=True, config=PLOT_CFG)
+            st.plotly_chart(fig_cf, width="stretch", config=PLOT_CFG)
             card_close()
 
     else:
@@ -903,7 +995,7 @@ with tab_kpis:
         yaxis=yax(title="triệu ₫"),
     )
     card_header("New vs Returning Revenue by Year", "Stacked · filtered period")
-    st.plotly_chart(fig_nr, use_container_width=True, config=PLOT_CFG)
+    st.plotly_chart(fig_nr, width="stretch", config=PLOT_CFG)
     card_close()
 
 
@@ -942,7 +1034,7 @@ with tab_clients:
             yaxis=yax(autorange="reversed"),
         ))
         card_header(f"Top {n} Clients", "All-time · filtered period")
-        st.plotly_chart(fig_cl, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_cl, width="stretch", config=PLOT_CFG)
         card_close()
 
     with col_c2:
@@ -968,7 +1060,7 @@ with tab_clients:
             margin=dict(t=8, b=8, l=0, r=100),
         ))
         card_header("Client Concentration", "Top 5 vs rest")
-        st.plotly_chart(fig_conc, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_conc, width="stretch", config=PLOT_CFG)
         card_close()
 
         # New clients per year
@@ -990,7 +1082,7 @@ with tab_clients:
             yaxis=yax(),
         )
         card_header("New / Reactivated Clients per Year")
-        st.plotly_chart(fig_new, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_new, width="stretch", config=PLOT_CFG)
         card_close()
 
     # Client × Year heatmap
@@ -1024,7 +1116,7 @@ with tab_clients:
         yaxis=yax(autorange="reversed"),
     ))
     card_header("Top 8 Clients · Revenue by Year", "Heatmap — deeper blue = higher revenue")
-    st.plotly_chart(fig_heat, use_container_width=True, config=PLOT_CFG)
+    st.plotly_chart(fig_heat, width="stretch", config=PLOT_CFG)
     card_close()
 
 
@@ -1055,7 +1147,7 @@ with tab_products:
             margin=dict(t=8, b=8, l=0, r=0),
         ))
         card_header("Product / Service Mix", "Share of total revenue")
-        st.plotly_chart(fig_prod, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_prod, width="stretch", config=PLOT_CFG)
         card_close()
 
     with pc2:
@@ -1079,7 +1171,7 @@ with tab_products:
             yaxis=yax(),
         )
         card_header("Revenue by Project Type")
-        st.plotly_chart(fig_type, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_type, width="stretch", config=PLOT_CFG)
         card_close()
 
     # Stacked area — product trend
@@ -1108,7 +1200,7 @@ with tab_products:
         yaxis=yax(title="triệu ₫"),
     )
     card_header("Product Revenue Stack by Year", "Top 5 products")
-    st.plotly_chart(fig_stack, use_container_width=True, config=PLOT_CFG)
+    st.plotly_chart(fig_stack, width="stretch", config=PLOT_CFG)
     card_close()
 
     # Sales rep
@@ -1141,7 +1233,7 @@ with tab_products:
             yaxis=yax(),
         )
         card_header("Revenue by Sales Rep")
-        st.plotly_chart(fig_rep, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_rep, width="stretch", config=PLOT_CFG)
         card_close()
 
     with rc2:
@@ -1159,7 +1251,7 @@ with tab_products:
             yaxis=yax(),
         )
         card_header("Avg Deal Size by Sales Rep")
-        st.plotly_chart(fig_avg, use_container_width=True, config=PLOT_CFG)
+        st.plotly_chart(fig_avg, width="stretch", config=PLOT_CFG)
         card_close()
 
 
@@ -1190,7 +1282,7 @@ with tab_data:
     display["Revenue (₫)"] = display["Revenue (₫)"].map(lambda x: f"{x:,.0f}")
 
     st.dataframe(
-        display, use_container_width=True, height=520, hide_index=True,
+        display, use_container_width=False, height=520, hide_index=True,
         column_config={
             "Date":          st.column_config.TextColumn("Date",    width="small"),
             "Project":       st.column_config.TextColumn("Project", width="large"),
