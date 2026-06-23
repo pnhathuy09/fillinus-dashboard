@@ -41,7 +41,7 @@ C_SURFACE = "#0D1628" if _dark else "#FFFFFF"   # Dark card  / White card
 C_SURFACE2= "#132038" if _dark else "#F5F5F5"   # Hover dark / Light hover
 C_BORDER  = "#1C2B45" if _dark else "#E5E5E5"   # Dark sep   / Neutral sep
 C_TEXT    = "#FCF6EE" if _dark else "#060D1E"   # Cream      / Deep Navy
-C_MUTED   = "#7A8FAD" if _dark else "#6B7A8D"   # Blue-gray
+C_MUTED   = "#7A8FAD" if _dark else "#4A5568"   # Blue-gray
 C_BLUE    = "#1453F8"   # color/brand/blue  — invariant
 C_ORANGE  = "#FF6F50"   # color/brand/orange — invariant
 C_GREEN   = "#10B981"
@@ -81,6 +81,7 @@ def xax(**kw):
         gridcolor="rgba(255,255,255,0.04)" if _dark else "rgba(0,0,0,0.05)",
         linecolor=C_BORDER,
         tickcolor=C_BORDER,
+        tickfont=dict(color=C_TEXT, size=11),
         zeroline=False,
     )
     base.update(kw)
@@ -92,6 +93,7 @@ def yax(**kw):
         linecolor="rgba(0,0,0,0)",
         zeroline=False,
         tickcolor="rgba(0,0,0,0)",
+        tickfont=dict(color=C_TEXT, size=11),
     )
     base.update(kw)
     return base
