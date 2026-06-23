@@ -5,7 +5,6 @@ Run: python3 -m streamlit run dashboard.py
 
 import os
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, date
@@ -288,7 +287,7 @@ st.set_page_config(
     page_title="Fillinus · Revenue",
     page_icon="🎵",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 st.markdown(f"""
@@ -304,13 +303,57 @@ st.markdown(f"""
 }}
 
 /* ── Sidebar ── */
-div[data-testid="stSidebar"] {{
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] > div > div {{
   background: {C_SURFACE} !important;
+}}
+section[data-testid="stSidebar"] {{
   border-right: 1px solid {C_BORDER} !important;
 }}
-div[data-testid="stSidebar"] * {{ color: {C_TEXT} !important; }}
-div[data-testid="stSidebar"] .stMultiSelect [data-baseweb="tag"] {{
-  background: rgba(20,83,248,0.2) !important;
+/* Sidebar text */
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] .stMarkdown,
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] small {{
+  color: {C_TEXT} !important;
+}}
+/* Sidebar inputs */
+section[data-testid="stSidebar"] input {{
+  background: {C_SURFACE2} !important;
+  border-color: {C_BORDER} !important;
+  color: {C_TEXT} !important;
+}}
+section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+  background: {C_SURFACE2} !important;
+  border-color: {C_BORDER} !important;
+  color: {C_TEXT} !important;
+}}
+/* Multiselect tags */
+section[data-testid="stSidebar"] .stMultiSelect [data-baseweb="tag"] {{
+  background: rgba(20,83,248,0.15) !important;
+  border: 1px solid rgba(20,83,248,0.3) !important;
+}}
+section[data-testid="stSidebar"] .stMultiSelect [data-baseweb="tag"] span {{
+  color: {C_BLUE} !important;
+}}
+/* Sidebar divider */
+section[data-testid="stSidebar"] hr {{
+  border-color: {C_BORDER} !important;
+  opacity: 1 !important;
+}}
+/* Sidebar toggle button */
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+[data-testid="stSidebarCollapseButton"] button {{
+  background: {C_BLUE} !important;
+  border: none !important;
+  border-radius: 10px !important;
+  width: 136px !important;
+  height: 40px !important;
+  min-width: 136px !important;
+  cursor: pointer !important;
+  box-shadow: 0 2px 8px rgba(20,83,248,0.30) !important;
 }}
 
 /* ── Tabs ── */
@@ -402,137 +445,8 @@ div[data-testid="stSelectbox"] > div > div {{
 }}
 [data-tooltip]:hover::after {{ opacity: 1; }}
 
-/* ── Sidebar toggle — branded pill (both states) ── */
-/* State A: sidebar COLLAPSED → open button */
-[data-testid="collapsedControl"],
-/* State B: sidebar EXPANDED → close button (DevTools confirmed selector) */
-[data-testid="stSidebarCollapseButton"] button {{
-  background: {C_BLUE} !important;
-  border: none !important;
-  border-radius: 10px !important;
-  width: 136px !important;
-  height: 40px !important;
-  min-width: 136px !important;
-  padding: 0 14px 0 10px !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  cursor: pointer !important;
-  transition: opacity 0.15s ease !important;
-  box-shadow: 0 2px 8px rgba(20,83,248,0.30) !important;
-  overflow: hidden !important;
-  position: relative !important;
-}}
-[data-testid="collapsedControl"]:hover,
-[data-testid="stSidebarCollapseButton"] button:hover {{
-  opacity: 0.85 !important;
-  background: {C_BLUE} !important;
-}}
-
-/* Hide Streamlit's default icon + svg in all descendants */
-[data-testid="collapsedControl"] span,
-[data-testid="collapsedControl"] svg,
-[data-testid="stSidebarCollapseButton"] button span,
-[data-testid="stSidebarCollapseButton"] button svg,
-[data-testid="stIconMaterial"] {{
-  font-size: 0 !important;
-  color: transparent !important;
-  width: 0 !important;
-  height: 0 !important;
-  overflow: hidden !important;
-  display: block !important;
-  visibility: hidden !important;
-}}
-
-/* Material Icons hamburger ☰ via ::before */
-[data-testid="collapsedControl"]::before,
-[data-testid="stSidebarCollapseButton"] button::before {{
-  font-family: 'Material Icons Round' !important;
-  content: "menu" !important;
-  font-size: 20px !important;
-  font-style: normal !important;
-  font-weight: 400 !important;
-  font-feature-settings: 'liga' !important;
-  -webkit-font-feature-settings: 'liga' !important;
-  color: #FCF6EE !important;
-  line-height: 1 !important;
-  flex-shrink: 0 !important;
-  visibility: visible !important;
-  display: block !important;
-}}
-
-/* Fillinus wordmark via ::after */
-[data-testid="collapsedControl"]::after,
-[data-testid="stSidebarCollapseButton"] button::after {{
-  content: "Fillinus" !important;
-  color: #FCF6EE !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  font-family: 'DM Sans', sans-serif !important;
-  letter-spacing: -0.2px !important;
-  white-space: nowrap !important;
-  line-height: 1 !important;
-  visibility: visible !important;
-  display: block !important;
-}}
 </style>
 """, unsafe_allow_html=True)
-
-# ── Sidebar button JS patcher (CSS alone can't override Streamlit emotion-cache) ──
-components.html("""
-<script>
-(function(){
-  var BLUE='#1453F8', CREAM='#FCF6EE';
-  function patch(btn){
-    if(!btn||btn.getAttribute('data-fp'))return;
-    btn.setAttribute('data-fp','1');
-    btn.style.setProperty('background',BLUE,'important');
-    btn.style.setProperty('border','none','important');
-    btn.style.setProperty('border-radius','10px','important');
-    btn.style.setProperty('width','136px','important');
-    btn.style.setProperty('height','40px','important');
-    btn.style.setProperty('min-width','136px','important');
-    btn.style.setProperty('padding','0','important');
-    btn.style.setProperty('display','flex','important');
-    btn.style.setProperty('align-items','center','important');
-    btn.style.setProperty('justify-content','center','important');
-    btn.style.setProperty('gap','8px','important');
-    btn.style.setProperty('box-shadow','0 2px 8px rgba(20,83,248,0.30)','important');
-    btn.style.setProperty('overflow','hidden','important');
-    btn.style.setProperty('cursor','pointer','important');
-    btn.style.setProperty('position','relative','important');
-    Array.from(btn.children).forEach(function(c){
-      c.style.setProperty('display','none','important');
-    });
-    var wrap=document.createElement('span');
-    wrap.setAttribute('aria-hidden','true');
-    wrap.style.cssText='display:flex;align-items:center;gap:8px;pointer-events:none;';
-    var ic=document.createElement('span');
-    ic.style.cssText='display:flex;align-items:center;flex-shrink:0;';
-    ic.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 12 12"><g fill="none"><line x1="0.5" y1="1.5" x2="11.5" y2="1.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="6" x2="11.5" y2="6" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/><line x1="0.5" y1="10.5" x2="11.5" y2="10.5" stroke="#FCF6EE" stroke-width="1.5" stroke-linecap="round"/></g></svg>';
-    var tx=document.createElement('span');
-    tx.style.cssText='color:'+CREAM+';font-size:14px;font-weight:700;font-family:"DM Sans",sans-serif;letter-spacing:-0.2px;white-space:nowrap;line-height:1;user-select:none;';
-    tx.textContent='Fillinus';
-    wrap.appendChild(ic);
-    wrap.appendChild(tx);
-    btn.appendChild(wrap);
-  }
-  function run(){
-    try{
-      var d=window.parent.document;
-      patch(d.querySelector('[data-testid="collapsedControl"]'));
-      patch(d.querySelector('[data-testid="stSidebarCollapseButton"] button'));
-    }catch(e){}
-  }
-  // Interval: retry mỗi 400ms trong 12 giây đầu
-  var n=0, iv=setInterval(function(){run();if(++n>30)clearInterval(iv);},400);
-  // MutationObserver: bắt DOM thay đổi khi sidebar toggle
-  try{
-    new MutationObserver(run).observe(window.parent.document.body,{childList:true,subtree:true});
-  }catch(e){}
-})();
-</script>
-""", height=1)
 
 # ── Topbar ────────────────────────────────────────────────────────────────────
 last_loaded = datetime.now().strftime("%d/%m/%Y %H:%M")
