@@ -148,6 +148,29 @@ def _build_data_context(df: pd.DataFrame) -> str:
         for rep, rev in by_rep.items():
             lines.append(f"  {rep}: {rev/1e9:.2f} tỷ ₫")
 
+    # Monthly breakdown — current year and previous year
+    for yr in [cur_year, cur_year - 1]:
+        yr_df = pos[pos["year"] == yr].copy()
+        if yr_df.empty:
+            continue
+        yr_df["month"] = yr_df["date"].dt.month
+        by_month = yr_df.groupby("month")["net"].agg(["sum", "count"]).sort_index()
+        lines.append(f"\nDOANH THU THEO THÁNG — {yr}:")
+        for mo, row in by_month.iterrows():
+            lines.append(
+                f"  Tháng {int(mo):02d}/{yr}: {row['sum']/1e6:.0f} triệu ₫"
+                f" ({int(row['count'])} deals)"
+            )
+
+    # Recent 15 transactions
+    recent = pos.sort_values("date", ascending=False).head(15)
+    lines.append("\n15 GIAO DỊCH GẦN NHẤT:")
+    for _, r in recent.iterrows():
+        lines.append(
+            f"  {r['date'].strftime('%d/%m/%Y')} | {r['name']} | {r['client']}"
+            f" | {r['product']} | {r['net']/1e6:.0f} triệu ₫"
+        )
+
     return "\n".join(lines)
 
 def _chat_system_prompt(data_ctx: str) -> str:
