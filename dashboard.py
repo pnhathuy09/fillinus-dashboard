@@ -338,6 +338,50 @@ def load_financials_df():
     fin = pd.DataFrame(recs, columns=cols) if recs else pd.DataFrame(columns=cols)
     return fin.reset_index(drop=True)
 
+@st.cache_data(ttl=60)
+def load_bookkeeping_df():
+    gc   = _gc()
+    sh   = gc.open_by_key(FINANCE_MASTER_ID)
+    ws   = sh.worksheet("Bookkeeping")
+    rows = ws.get_all_values()
+    if len(rows) < 2:
+        return pd.DataFrame()
+    headers = rows[0]
+    col = {h.strip(): i for i, h in enumerate(headers)}
+    recs = []
+    for r in rows[1:]:
+        def g(name):
+            i = col.get(name, -1)
+            return r[i].strip() if 0 <= i < len(r) else ""
+        year  = g("Year");  month = g("Month")
+        if not year or not month:
+            continue
+        try:
+            yr = int(year);  mo = int(float(month))
+        except ValueError:
+            continue
+        cash_in  = parse_vnd(g("CASH IN"))
+        cash_out = parse_vnd(g("CASH OUT"))
+        date_raw = g("DATE") or g("Date")
+        try:
+            dt = pd.to_datetime(date_raw, dayfirst=True, errors="coerce")
+        except Exception:
+            dt = pd.NaT
+        recs.append({
+            "date":       dt,
+            "year":       yr,
+            "month":      mo,
+            "month_key":  f"{yr:04d}-{mo:02d}",
+            "category":   g("CATEGORY"),
+            "cf_type":    g("TYPE OF CASHFLOW"),
+            "description":g("DESCRIPTION"),
+            "cash_in":    cash_in,
+            "cash_out":   cash_out,
+        })
+    if not recs:
+        return pd.DataFrame()
+    return pd.DataFrame(recs)
+
 # ── HTML helpers ──────────────────────────────────────────────────────────────
 def fmt_b(v):   return f"{v/1e9:.2f}B ₫"
 def fmt_m(v):   return f"{v/1e6:.1f}M"
@@ -862,8 +906,8 @@ st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-tab_overview, tab_kpis, tab_clients, tab_products, tab_data = st.tabs([
-    "  Overview  ", "  KPIs  ", "  Clients  ", "  Products & Reps  ", "  Transactions  "
+tab_overview, tab_kpis, tab_cashflow, tab_clients, tab_products, tab_data = st.tabs([
+    "  Overview  ", "  KPIs  ", "  Cash Flow  ", "  Clients  ", "  Products & Reps  ", "  Transactions  "
 ])
 
 # ════════════════════════════════════ OVERVIEW ════════════════════════════════
@@ -1168,6 +1212,159 @@ with tab_kpis:
     st.plotly_chart(fig_nr, width="stretch", config=PLOT_CFG)
     card_close()
 
+
+# ════════════════════════════════════ CASH FLOW ═══════════════════════════════
+with tab_cashflow:
+    bdf_raw = load_bookkeeping_df()
+
+    if bdf_raw.empty:
+        st.info("Không tải được dữ liệu từ sheet Bookkeeping.")
+    else:
+        # ── Filters ──────────────────────────────────────────────────────────
+        cf_f1, cf_f2, cf_f3 = st.columns(3)
+        cf_years = sorted(bdf_raw["year"].dropna().unique().astype(int).tolist(), reverse=True)
+        cf_yr = cf_f1.selectbox("Năm", ["Tất cả"] + cf_years, key="cf_yr")
+        cf_cats = sorted([c for c in bdf_raw["category"].dropna().unique() if c])
+        cf_cat = cf_f2.selectbox("Category", ["Tất cả"] + cf_cats, key="cf_cat")
+        cf_types = sorted([t for t in bdf_raw["cf_type"].dropna().unique() if t])
+        cf_type = cf_f3.selectbox("Type", ["Tất cả"] + cf_types, key="cf_type")
+
+        bdf = bdf_raw.copy()
+        if cf_yr != "Tất cả":
+            bdf = bdf[bdf["year"] == int(cf_yr)]
+        if cf_cat != "Tất cả":
+            bdf = bdf[bdf["category"] == cf_cat]
+        if cf_type != "Tất cả":
+            bdf = bdf[bdf["cf_type"] == cf_type]
+
+        total_in  = bdf["cash_in"].sum()
+        total_out = bdf["cash_out"].sum()
+        net_cf    = total_in - total_out
+        n_rows    = len(bdf)
+
+        # ── KPI cards ────────────────────────────────────────────────────────
+        ck1, ck2, ck3, ck4 = st.columns(4, gap="small")
+        ck1.markdown(score_card_html("Cash In",       fmt_m(total_in),  pct_badge(None), f"{n_rows} dòng", C_BLUE,   icon="↓"), unsafe_allow_html=True)
+        ck2.markdown(score_card_html("Cash Out",      fmt_m(total_out), pct_badge(None), f"{n_rows} dòng", C_ORANGE, icon="↑"), unsafe_allow_html=True)
+        cf_col = C_GREEN if net_cf >= 0 else C_RED
+        ck3.markdown(score_card_html("Net Cash Flow", fmt_m(net_cf),    pct_badge(None), "In − Out",       cf_col,   icon="⇄"), unsafe_allow_html=True)
+        ck4.markdown(score_card_html("Transactions",  f"{n_rows:,}",    pct_badge(None), "dòng ghi nhận",  C_MUTED,  icon="#"), unsafe_allow_html=True)
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+        # ── Monthly stacked bar ───────────────────────────────────────────────
+        by_month = bdf.groupby("month_key")[["cash_in","cash_out"]].sum().reset_index().sort_values("month_key")
+        by_month["net"] = by_month["cash_in"] - by_month["cash_out"]
+
+        fig_bk = go.Figure()
+        fig_bk.add_trace(go.Bar(
+            x=by_month["month_key"], y=by_month["cash_in"] / 1e6,
+            name="Cash In", marker_color=C_BLUE, marker_line_width=0,
+            hovertemplate="<b>%{x}</b><br>Cash In: %{y:.0f}M ₫<extra></extra>",
+        ))
+        fig_bk.add_trace(go.Bar(
+            x=by_month["month_key"], y=-by_month["cash_out"] / 1e6,
+            name="Cash Out", marker_color=C_ORANGE, marker_line_width=0,
+            hovertemplate="<b>%{x}</b><br>Cash Out: %{customdata:.0f}M ₫<extra></extra>",
+            customdata=by_month["cash_out"] / 1e6,
+        ))
+        fig_bk.add_trace(go.Scatter(
+            x=by_month["month_key"], y=by_month["net"] / 1e6,
+            name="Net", mode="lines+markers",
+            line=dict(color=C_GREEN if net_cf >= 0 else C_RED, width=2, dash="dot"),
+            marker=dict(size=5),
+            hovertemplate="<b>%{x}</b><br>Net: %{y:.0f}M ₫<extra></extra>",
+        ))
+        fig_bk.update_layout(
+            **layout(), height=280, barmode="relative", bargap=0.25,
+            xaxis=xax(tickangle=-30), yaxis=yax(title="triệu ₫"),
+        )
+        card_header("Monthly Cash Flow", "Cash In (xanh) · Cash Out (cam) · Net (đường)")
+        st.plotly_chart(fig_bk, width="stretch", config=PLOT_CFG)
+        card_close()
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        # ── Category & Type breakdown ─────────────────────────────────────────
+        cb1, cb2 = st.columns(2, gap="medium")
+        with cb1:
+            by_cat = (bdf.groupby("category")[["cash_in","cash_out"]]
+                      .sum().reset_index()
+                      .assign(net=lambda d: d["cash_in"] - d["cash_out"])
+                      .sort_values("cash_out", ascending=False))
+            fig_cat = go.Figure()
+            fig_cat.add_trace(go.Bar(
+                y=by_cat["category"], x=by_cat["cash_in"] / 1e6,
+                name="Cash In", orientation="h", marker_color=C_BLUE, marker_line_width=0,
+                hovertemplate="<b>%{y}</b><br>Cash In: %{x:.0f}M ₫<extra></extra>",
+            ))
+            fig_cat.add_trace(go.Bar(
+                y=by_cat["category"], x=-by_cat["cash_out"] / 1e6,
+                name="Cash Out", orientation="h", marker_color=C_ORANGE, marker_line_width=0,
+                hovertemplate="<b>%{y}</b><br>Cash Out: %{customdata:.0f}M ₫<extra></extra>",
+                customdata=by_cat["cash_out"] / 1e6,
+            ))
+            fig_cat.update_layout(
+                **layout(), height=280, barmode="relative", bargap=0.3,
+                xaxis=xax(title="triệu ₫"), yaxis=yax(),
+            )
+            card_header("By Category", "Cash In vs Cash Out")
+            st.plotly_chart(fig_cat, width="stretch", config=PLOT_CFG)
+            card_close()
+
+        with cb2:
+            by_type = (bdf.groupby("cf_type")[["cash_in","cash_out"]]
+                       .sum().reset_index()
+                       .assign(net=lambda d: d["cash_in"] - d["cash_out"])
+                       .sort_values("cash_out", ascending=False))
+            fig_type = go.Figure()
+            fig_type.add_trace(go.Bar(
+                y=by_type["cf_type"], x=by_type["cash_in"] / 1e6,
+                name="Cash In", orientation="h", marker_color=C_BLUE, marker_line_width=0,
+                hovertemplate="<b>%{y}</b><br>Cash In: %{x:.0f}M ₫<extra></extra>",
+            ))
+            fig_type.add_trace(go.Bar(
+                y=by_type["cf_type"], x=-by_type["cash_out"] / 1e6,
+                name="Cash Out", orientation="h", marker_color=C_ORANGE, marker_line_width=0,
+                hovertemplate="<b>%{y}</b><br>Cash Out: %{customdata:.0f}M ₫<extra></extra>",
+                customdata=by_type["cash_out"] / 1e6,
+            ))
+            fig_type.update_layout(
+                **layout(), height=280, barmode="relative", bargap=0.3,
+                xaxis=xax(title="triệu ₫"), yaxis=yax(),
+            )
+            card_header("By Type of Cash Flow", "Cash In vs Cash Out")
+            st.plotly_chart(fig_type, width="stretch", config=PLOT_CFG)
+            card_close()
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        # ── Transaction table ─────────────────────────────────────────────────
+        t_display = bdf[bdf["cash_in"].gt(0) | bdf["cash_out"].gt(0)].copy()
+        t_display = t_display.sort_values("date", ascending=False).reset_index(drop=True)
+        t_display["Cash In"]  = t_display["cash_in"].map(lambda x: f"{x:,.0f}" if x else "")
+        t_display["Cash Out"] = t_display["cash_out"].map(lambda x: f"{x:,.0f}" if x else "")
+        t_display["Net"]      = (t_display["cash_in"] - t_display["cash_out"]).map(lambda x: f"{x:,.0f}")
+        t_out = t_display[["date","category","cf_type","description","Cash In","Cash Out","Net"]].copy()
+        t_out["date"] = t_out["date"].dt.strftime("%d/%m/%Y").fillna("")
+        t_out.columns = ["Date","Category","Type","Description","Cash In","Cash Out","Net"]
+
+        st.caption(f"{len(t_out):,} giao dịch · Cash In {fmt_m(total_in)} · Cash Out {fmt_m(total_out)}")
+        _bk_styled = t_out.style.set_properties(**{
+            "background-color": C_SURFACE, "color": C_TEXT,
+        }).set_table_styles([
+            {"selector": "th", "props": [("background-color", C_SURFACE2), ("color", C_TEXT), ("border-bottom", f"1px solid {C_BORDER}")]},
+            {"selector": "td", "props": [("border-bottom", f"1px solid {C_BORDER}")]},
+        ])
+        st.dataframe(_bk_styled, use_container_width=True, height=420, hide_index=True,
+            column_config={
+                "Date":        st.column_config.TextColumn("Date",        width="small"),
+                "Category":    st.column_config.TextColumn("Category",    width="small"),
+                "Type":        st.column_config.TextColumn("Type",        width="medium"),
+                "Description": st.column_config.TextColumn("Description", width="large"),
+                "Cash In":     st.column_config.TextColumn("Cash In",     width="medium"),
+                "Cash Out":    st.column_config.TextColumn("Cash Out",    width="medium"),
+                "Net":         st.column_config.TextColumn("Net",         width="medium"),
+            })
 
 # ════════════════════════════════════ CLIENTS ═════════════════════════════════
 with tab_clients:
