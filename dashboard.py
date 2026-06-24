@@ -10,7 +10,8 @@ import plotly.graph_objects as go
 from datetime import datetime, date
 import gspread
 from google.oauth2.service_account import Credentials
-import anthropic
+from groq import Groq as _Groq
+from streamlit_float import float_init
 
 # ── Google Sheets constants ───────────────────────────────────────────────────
 _DIR             = os.path.dirname(os.path.abspath(__file__))
@@ -106,12 +107,12 @@ PLOT_CFG = {"displayModeBar": False}
 
 # ── AI Chat helpers ───────────────────────────────────────────────────────────
 @st.cache_resource
-def _get_anthropic_client():
-    key = (st.secrets.get("anthropic_api_key", "") or
-           os.environ.get("ANTHROPIC_API_KEY", ""))
+def _get_groq_client():
+    key = (st.secrets.get("groq_api_key", "") or
+           os.environ.get("GROQ_API_KEY", ""))
     if not key:
         return None
-    return anthropic.Anthropic(api_key=key)
+    return _Groq(api_key=key)
 
 def _build_data_context(df: pd.DataFrame) -> str:
     today = datetime.now()
@@ -178,14 +179,17 @@ def _chat_system_prompt(data_ctx: str) -> str:
 - **Artist / Talent**: Match artist với brief, check roster, recommend casting
 """
 
-def _stream_chat(client: anthropic.Anthropic, messages: list, system: str):
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
+def _stream_chat(client: _Groq, messages: list, system: str):
+    stream = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "system", "content": system}, *messages],
+        stream=True,
         max_tokens=1024,
-        system=system,
-        messages=messages,
-    ) as stream:
-        yield from stream.text_stream
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content
+        if delta:
+            yield delta
 
 # ── Data fetching ─────────────────────────────────────────────────────────────
 def parse_vnd(raw):
@@ -378,6 +382,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+float_init()
 
 st.markdown(f"""
 <style>
@@ -568,39 +573,111 @@ div[data-testid="stSelectbox"] > div > div {{
   fill: {C_MUTED} !important;
 }}
 
-/* ── Dataframe text — ensure light mode visibility ── */
+/* ── Dataframe — theme-aware background + text ── */
 [data-testid="stDataFrame"] {{
   color: {C_TEXT} !important;
+  background: {C_SURFACE} !important;
+  border-radius: 10px !important;
+  border: 1px solid {C_BORDER} !important;
+  overflow: hidden !important;
+}}
+[data-testid="stDataFrame"] > div,
+[data-testid="stDataFrame"] > div > div {{
+  background: {C_SURFACE} !important;
 }}
 [data-testid="stDataFrame"] [role="gridcell"],
 [data-testid="stDataFrame"] [role="columnheader"] {{
   color: {C_TEXT} !important;
+  background: {C_SURFACE} !important;
+}}
+[data-testid="stDataFrame"] [role="columnheader"] {{
+  background: {C_SURFACE2} !important;
+  border-bottom: 1px solid {C_BORDER} !important;
 }}
 
-/* ── Chat tab ── */
+/* ── Float AI chat ── */
 [data-testid="stChatMessage"] {{
   background: {C_SURFACE} !important;
   border: 1px solid {C_BORDER} !important;
-  border-radius: 12px !important;
-  padding: 12px 16px !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  margin-bottom: 6px !important;
 }}
 [data-testid="stChatMessage"][aria-label="user message"] {{
   background: rgba(20,83,248,0.07) !important;
   border-color: rgba(20,83,248,0.18) !important;
 }}
-[data-testid="stChatInputContainer"] > div {{
-  background: {C_SURFACE} !important;
+
+/* ── Float chat form & buttons ── */
+
+/* Chat text input */
+[data-testid="stTextInput"] input {{
+  background: {C_SURFACE2} !important;
   border: 1px solid {C_BORDER} !important;
-  border-radius: 12px !important;
-}}
-[data-testid="stChatInputContainer"] textarea {{
-  background: transparent !important;
+  border-radius: 10px !important;
   color: {C_TEXT} !important;
-  font-family: 'DM Sans', Inter, sans-serif !important;
+  font-size: 13px !important;
 }}
-[data-testid="stChatInputContainer"] button[kind="primary"] {{
+[data-testid="stTextInput"] input::placeholder {{
+  color: {C_MUTED} !important;
+}}
+
+/* Form container — remove default border/bg */
+[data-testid="stForm"] {{
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+}}
+
+/* Send → button */
+[data-testid="stFormSubmitButton"] > button {{
   background: {C_BLUE} !important;
+  color: #FCF6EE !important;
+  border: none !important;
+  border-radius: 10px !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  width: 100% !important;
+  box-shadow: 0 2px 8px rgba(20,83,248,0.3) !important;
+}}
+[data-testid="stFormSubmitButton"] > button:hover {{
+  background: #0f44e0 !important;
+  border: none !important;
+  opacity: 1 !important;
+}}
+
+/* FAB toggle — circular */
+button[kind="primary"] {{
+  width: 52px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  border-radius: 26px !important;
+  padding: 0 !important;
+  font-size: 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 4px 20px rgba(20,83,248,0.45) !important;
+}}
+
+/* Icon buttons: ✕ close, ↺ clear */
+button[kind="secondary"] {{
+  background: transparent !important;
+  border: 1px solid {C_BORDER} !important;
+  color: {C_MUTED} !important;
   border-radius: 8px !important;
+  font-size: 13px !important;
+  min-height: 30px !important;
+  height: 30px !important;
+  padding: 0 6px !important;
+  line-height: 1 !important;
+}}
+button[kind="secondary"]:hover {{
+  background: {C_SURFACE2} !important;
+  color: {C_TEXT} !important;
+  border-color: {C_MUTED} !important;
 }}
 
 </style>
@@ -760,8 +837,8 @@ st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-tab_overview, tab_kpis, tab_clients, tab_products, tab_data, tab_chat = st.tabs([
-    "  Overview  ", "  KPIs  ", "  Clients  ", "  Products & Reps  ", "  Transactions  ", "  AI Chat  "
+tab_overview, tab_kpis, tab_clients, tab_products, tab_data = st.tabs([
+    "  Overview  ", "  KPIs  ", "  Clients  ", "  Products & Reps  ", "  Transactions  "
 ])
 
 # ════════════════════════════════════ OVERVIEW ════════════════════════════════
@@ -1349,8 +1426,22 @@ with tab_data:
     display = display.sort_values("Date", ascending=False).reset_index(drop=True)
     display["Revenue (₫)"] = display["Revenue (₫)"].map(lambda x: f"{x:,.0f}")
 
+    _styled = display.style.set_properties(**{
+        "background-color": C_SURFACE,
+        "color": C_TEXT,
+    }).set_table_styles([
+        {"selector": "th", "props": [
+            ("background-color", C_SURFACE2),
+            ("color", C_TEXT),
+            ("border-bottom", f"1px solid {C_BORDER}"),
+        ]},
+        {"selector": "td", "props": [
+            ("border-bottom", f"1px solid {C_BORDER}"),
+        ]},
+    ])
+
     st.dataframe(
-        display, use_container_width=True, height=520, hide_index=True,
+        _styled, use_container_width=True, height=520, hide_index=True,
         column_config={
             "Date":          st.column_config.TextColumn("Date",    width="small"),
             "Project":       st.column_config.TextColumn("Project", width="large"),
@@ -1358,100 +1449,6 @@ with tab_data:
             "Revenue (₫)":   st.column_config.TextColumn("Revenue", width="medium"),
         },
     )
-
-# ════════════════════════════════════ AI CHAT ════════════════════════════════
-with tab_chat:
-    _ai_client = _get_anthropic_client()
-
-    if _ai_client is None:
-        st.markdown(
-            f'<div style="padding:24px;background:{C_SURFACE};border:1px solid {C_BORDER};'
-            f'border-radius:12px;margin-top:8px">'
-            f'<div style="font-size:14px;font-weight:600;color:{C_TEXT};margin-bottom:8px">⚠️ API key chưa cấu hình</div>'
-            f'<div style="font-size:13px;color:{C_MUTED};line-height:1.6">'
-            f'Thêm <code style="background:{C_SURFACE2};padding:2px 6px;border-radius:4px;'
-            f'color:{C_BLUE}">anthropic_api_key</code> vào <b>Streamlit Secrets</b> '
-            f'(Settings → Secrets) để dùng tính năng AI Chat.</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        # ── Chat header ───────────────────────────────────────────────────────
-        col_h, col_btn = st.columns([7, 1])
-        with col_h:
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
-                f'<div style="width:32px;height:32px;background:{C_BLUE};border-radius:8px;'
-                f'display:flex;align-items:center;justify-content:center;font-size:14px;'
-                f'font-weight:800;color:#FCF6EE">F</div>'
-                f'<div>'
-                f'<div style="font-size:15px;font-weight:700;color:{C_TEXT}">Fillinus AI</div>'
-                f'<div style="font-size:11px;color:{C_MUTED}">Analyst · Strategist · Growth · Talent</div>'
-                f'</div></div>',
-                unsafe_allow_html=True,
-            )
-        with col_btn:
-            if st.button("Clear", use_container_width=True, key="chat_clear"):
-                st.session_state.chat_messages = []
-                st.rerun()
-
-        # ── Session state ─────────────────────────────────────────────────────
-        if "chat_messages" not in st.session_state:
-            st.session_state.chat_messages = []
-
-        # ── Suggestion chips (shown only when chat is empty) ──────────────────
-        if not st.session_state.chat_messages:
-            st.markdown(
-                f'<div style="text-align:center;padding:32px 24px 20px;color:{C_MUTED}">'
-                f'<div style="font-size:32px;margin-bottom:10px">💬</div>'
-                f'<div style="font-size:14px;font-weight:500;color:{C_TEXT};margin-bottom:4px">'
-                f'Hỏi bất cứ điều gì về Fillinus</div>'
-                f'<div style="font-size:12px">Doanh thu · Chiến lược · Marketing · Artist</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            sc1, sc2, sc3, sc4 = st.columns(4)
-            _suggestions = [
-                ("📊", "Doanh thu Q2 2026 là bao nhiêu?"),
-                ("🎯", "Nên focus B2B hay B2C trong Q3?"),
-                ("📣", "Lên campaign brief cho tháng 8"),
-                ("🎤", "Artist phù hợp brand FMCG mainstream"),
-            ]
-            for _col, (_icon, _text) in zip([sc1, sc2, sc3, sc4], _suggestions):
-                with _col:
-                    if st.button(f"{_icon} {_text}", use_container_width=True, key=f"sug_{_text[:12]}"):
-                        st.session_state["_chat_pending"] = _text
-                        st.rerun()
-
-        # ── Message history ───────────────────────────────────────────────────
-        for msg in st.session_state.chat_messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        # ── Input + pending suggestion ────────────────────────────────────────
-        _pending = st.session_state.pop("_chat_pending", None)
-        _prompt = st.chat_input("Hỏi về doanh thu, chiến lược, artist...") or _pending
-
-        if _prompt:
-            data_ctx  = _build_data_context(df)
-            sys_prompt = _chat_system_prompt(data_ctx)
-
-            st.session_state.chat_messages.append({"role": "user", "content": _prompt})
-            with st.chat_message("user"):
-                st.markdown(_prompt)
-
-            with st.chat_message("assistant"):
-                try:
-                    _api_msgs = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.chat_messages
-                    ]
-                    full_text = st.write_stream(_stream_chat(_ai_client, _api_msgs, sys_prompt))
-                except Exception as e:
-                    full_text = f"⚠️ Lỗi API: {e}"
-                    st.markdown(full_text)
-
-            st.session_state.chat_messages.append({"role": "assistant", "content": full_text})
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -1468,4 +1465,127 @@ st.markdown(
     f'{len(dff)} rows · {last_loaded}</span>'
     f'</div>',
     unsafe_allow_html=True,
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FLOATING AI CHAT WIDGET
+# ══════════════════════════════════════════════════════════════════════════════
+if "chat_open" not in st.session_state:
+    st.session_state["chat_open"] = False
+if "chat_messages" not in st.session_state:
+    st.session_state["chat_messages"] = []
+
+_fab_client = _get_groq_client()
+_fab_has_key = _fab_client is not None
+
+_fab_container = st.container()
+with _fab_container:
+    if st.session_state["chat_open"]:
+        # ── Panel header ──────────────────────────────────────────────────────
+        _hc1, _hc2 = st.columns([5, 2])
+        with _hc1:
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;padding:12px 4px 8px">'
+                f'<div style="width:28px;height:28px;background:{C_BLUE};border-radius:7px;'
+                f'display:flex;align-items:center;justify-content:center;'
+                f'font-size:12px;font-weight:800;color:#FCF6EE;flex-shrink:0">F</div>'
+                f'<div>'
+                f'<div style="font-size:13px;font-weight:700;color:{C_TEXT};line-height:1.1">'
+                f'Fillinus AI</div>'
+                f'<div style="font-size:10px;color:{C_MUTED}">Analyst · Strategist · Growth · Talent</div>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+        with _hc2:
+            _hb1, _hb2 = st.columns(2)
+            with _hb1:
+                _can_clear = bool(st.session_state["chat_messages"])
+                if st.button("↺", key="fab_clear", use_container_width=True,
+                             help="Clear chat", disabled=not _can_clear):
+                    st.session_state["chat_messages"] = []
+                    st.rerun()
+            with _hb2:
+                if st.button("✕", key="fab_close", use_container_width=True):
+                    st.session_state["chat_open"] = False
+                    st.rerun()
+
+        st.markdown(
+            f'<div style="height:1px;background:{C_BORDER};margin:0 0 8px"></div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── No API key warning ────────────────────────────────────────────────
+        if not _fab_has_key:
+            st.markdown(
+                f'<div style="padding:12px;background:rgba(239,68,68,0.08);'
+                f'border:1px solid rgba(239,68,68,0.2);border-radius:8px;'
+                f'font-size:12px;color:{C_MUTED}">'
+                f'⚠️ Chưa cấu hình <code>groq_api_key</code> trong Streamlit Secrets.</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            # ── Message history ───────────────────────────────────────────────
+            _msg_area = st.container(height=320, border=False)
+            with _msg_area:
+                if not st.session_state["chat_messages"]:
+                    st.markdown(
+                        f'<div style="text-align:center;padding:40px 12px;color:{C_MUTED};'
+                        f'font-size:12px;line-height:1.8">'
+                        f'💬<br>Hỏi về doanh thu, chiến lược<br>marketing hoặc artist</div>',
+                        unsafe_allow_html=True,
+                    )
+                for _m in st.session_state["chat_messages"]:
+                    with st.chat_message(_m["role"]):
+                        st.markdown(_m["content"])
+
+            # ── Generate assistant reply if last msg is from user ─────────────
+            _fab_msgs = st.session_state["chat_messages"]
+            if _fab_msgs and _fab_msgs[-1]["role"] == "user":
+                with st.spinner("Đang xử lý..."):
+                    _dc = _build_data_context(df)
+                    _sp = _chat_system_prompt(_dc)
+                    _api_m = [{"role": x["role"], "content": x["content"]} for x in _fab_msgs]
+                    try:
+                        _reply = "".join(_stream_chat(_fab_client, _api_m, _sp))
+                    except Exception as _ex:
+                        _es = str(_ex).lower()
+                        if "rate_limit" in _es or "429" in _es or "quota" in _es:
+                            _reply = (
+                                "⚠️ **Đã vượt rate limit Groq API.**\n\n"
+                                "Free tier: 14,400 req/ngày. "
+                                "Vào **console.groq.com** để kiểm tra usage."
+                            )
+                        else:
+                            _reply = f"⚠️ Lỗi API: {_ex}"
+                st.session_state["chat_messages"].append({"role": "assistant", "content": _reply})
+                st.rerun()
+
+            # ── Input form ────────────────────────────────────────────────────
+            with st.form("fab_chat_form", clear_on_submit=True, border=False):
+                _fi_cols = st.columns([7, 1])
+                with _fi_cols[0]:
+                    _fab_input = st.text_input(
+                        "", placeholder="Nhập câu hỏi...",
+                        label_visibility="collapsed",
+                    )
+                with _fi_cols[1]:
+                    _fab_send = st.form_submit_button("→", use_container_width=True)
+
+            if _fab_send and _fab_input:
+                st.session_state["chat_messages"].append({"role": "user", "content": _fab_input})
+                st.rerun()
+
+    # ── FAB toggle button ─────────────────────────────────────────────────────
+    _fab_icon = "✕" if st.session_state["chat_open"] else "💬"
+    if st.button(_fab_icon, key="fab_toggle", type="primary", use_container_width=False):
+        st.session_state["chat_open"] = not st.session_state["chat_open"]
+        st.rerun()
+
+# Float the container to bottom-right
+_fab_w = "380px" if st.session_state["chat_open"] else "auto"
+_fab_container.float(
+    f"bottom: 24px; right: 24px; z-index: 9999; width: {_fab_w}; "
+    f"background: {C_SURFACE}; border: 1px solid {C_BORDER}; "
+    f"border-radius: 16px; padding: 0 12px 12px; "
+    f"box-shadow: 0 8px 32px rgba(0,0,0,0.35);"
 )
