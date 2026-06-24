@@ -106,10 +106,12 @@ def yax(**kw):
 PLOT_CFG = {"displayModeBar": False}
 
 # ── AI Chat helpers ───────────────────────────────────────────────────────────
-@st.cache_resource
 def _get_groq_client():
-    key = (st.secrets.get("groq_api_key", "") or
-           os.environ.get("GROQ_API_KEY", ""))
+    try:
+        key = st.secrets["groq_api_key"]
+    except (KeyError, FileNotFoundError):
+        key = ""
+    key = key or os.environ.get("GROQ_API_KEY", "")
     if not key:
         return None
     return _Groq(api_key=key)
