@@ -447,6 +447,15 @@ div[data-testid="stSelectbox"] > div > div {{
 }}
 [data-tooltip]:hover::after {{ opacity: 1; }}
 
+/* ── Plotly chart text — override Streamlit dark-theme SVG injection ── */
+[data-testid="stPlotlyChart"] .xtick > text,
+[data-testid="stPlotlyChart"] .ytick > text,
+[data-testid="stPlotlyChart"] .g-xtitle text,
+[data-testid="stPlotlyChart"] .g-ytitle text,
+[data-testid="stPlotlyChart"] .legendtext {{
+  fill: {C_TEXT} !important;
+}}
+
 </style>
 """, unsafe_allow_html=True)
 
