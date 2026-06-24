@@ -297,11 +297,21 @@ st.markdown(f"""
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&display=swap');
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons+Round');
 
-/* ── Page background ── */
-.stApp, body {{ background: {C_BG} !important; }}
+/* ── Page background + global text color ── */
+.stApp, body {{ background: {C_BG} !important; color: {C_TEXT} !important; }}
 .block-container {{ padding: 1.5rem 2rem 2rem !important; max-width: 1440px; }}
-*, html, body, p, div, span, input, button, select {{
+*, html, body, p, div, span, li, label, caption, small, input, button, select {{
   font-family: 'DM Sans', Inter, -apple-system, sans-serif !important;
+  color: inherit;
+}}
+/* Force all unthemed text to use brand text color — prevents cream-on-white in light mode */
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] span,
+[data-testid="stAppViewContainer"] div,
+[data-testid="stAppViewContainer"] li,
+[data-testid="stAppViewContainer"] label {{
+  color: {C_TEXT};
 }}
 
 /* ── Sidebar ── */
