@@ -28,7 +28,7 @@ def _gc():
         )
     else:
         creds = Credentials.from_service_account_file(CREDS_PATH, scopes=_SCOPES)
-    return gspread.authorize(creds)
+    return gspread.Client(auth=creds)
 
 # ── Theme state (safe to read before st.set_page_config) ─────────────────────
 if "theme" not in st.session_state:
@@ -48,9 +48,12 @@ C_GREEN   = "#10B981"
 C_RED     = "#EF4444"
 C_YELLOW  = "#F59E0B"
 C_LABEL   = "#C8D8F0" if _dark else "#2A3A50"   # chart bar/line labels
+C_PURPLE  = "#8B5CF6"   # extended palette — warm violet, 3rd-series data
+C_PINK    = "#EC4899"   # extended palette — vibrant secondary, used sparingly
+C_CYAN    = "#06B6D4"   # extended palette — cool accent, 5+ series
 C_SHADOW_SM = "0 1px 4px rgba(0,0,0,0.28)" if _dark else "0 1px 6px rgba(0,0,0,0.08)"
 C_SHADOW_MD = "0 2px 8px rgba(0,0,0,0.30)" if _dark else "0 2px 10px rgba(0,0,0,0.09)"
-PALETTE   = [C_BLUE, C_ORANGE, "#8B5CF6", C_GREEN, C_YELLOW, "#EC4899", "#06B6D4"]
+PALETTE   = [C_BLUE, C_ORANGE, C_PURPLE, C_GREEN, C_YELLOW, C_PINK, C_CYAN]
 
 # ── Chart theme ───────────────────────────────────────────────────────────────
 # NOTE: no xaxis/yaxis here — pass those per-chart to avoid duplicate-kwarg error
@@ -436,8 +439,8 @@ div[data-testid="stSelectbox"] > div > div {{
   top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: #040916;
-  color: #FCF6EE;
+  background: {C_BG};
+  color: {C_TEXT};
   border: 1px solid {C_BORDER};
   border-radius: 8px;
   padding: 10px 14px;
@@ -464,6 +467,30 @@ div[data-testid="stSelectbox"] > div > div {{
 [data-testid="stPlotlyChart"] .g-ytitle text,
 [data-testid="stPlotlyChart"] .legendtext {{
   fill: {C_TEXT} !important;
+}}
+/* Pie/Donut labels */
+[data-testid="stPlotlyChart"] .pielabel text,
+[data-testid="stPlotlyChart"] .pie text {{
+  fill: {C_TEXT} !important;
+}}
+/* Heatmap cell annotations */
+[data-testid="stPlotlyChart"] .heatmap text,
+[data-testid="stPlotlyChart"] .hmtext {{
+  fill: {C_TEXT} !important;
+}}
+/* Colorbar tick labels */
+[data-testid="stPlotlyChart"] .cbtick > text,
+[data-testid="stPlotlyChart"] .cbaxis text {{
+  fill: {C_MUTED} !important;
+}}
+
+/* ── Dataframe text — ensure light mode visibility ── */
+[data-testid="stDataFrame"] {{
+  color: {C_TEXT} !important;
+}}
+[data-testid="stDataFrame"] [role="gridcell"],
+[data-testid="stDataFrame"] [role="columnheader"] {{
+  color: {C_TEXT} !important;
 }}
 
 </style>
@@ -614,7 +641,7 @@ k2.markdown(score_card_html(f"{cur_year} YTD", fmt_b(rev_cur), pct_badge(ytd_pct
 k3.markdown(score_card_html("Active Clients", str(cur_clients), pct_badge(clients_pct), f"vs {prev_clients} in {prev_year}", C_ORANGE,
     tooltip=f"Số khách hàng duy nhất có giao dịch trong năm {cur_year}. So sánh với {prev_clients} clients năm {prev_year}.",
     icon="◎"), unsafe_allow_html=True)
-k4.markdown(score_card_html("Avg Deal Size", fmt_m(avg_deal), pct_badge(avg_pct), f"vs {fmt_m(prev_avg)} in {prev_year}", "#8B5CF6",
+k4.markdown(score_card_html("Avg Deal Size", fmt_m(avg_deal), pct_badge(avg_pct), f"vs {fmt_m(prev_avg)} in {prev_year}", C_PURPLE,
     tooltip=f"Giá trị trung bình mỗi giao dịch (chỉ tính deal > 0 trong khoảng filter). So sánh với trung bình năm {prev_year}.",
     icon="◈"), unsafe_allow_html=True)
 
@@ -792,7 +819,7 @@ with tab_kpis:
             tooltip=f"NPM = (Revenue − COGS − OpEx) ÷ Revenue. Lợi nhuận ròng sau toàn bộ chi phí. Trung bình {avg_npm:.1f}% trong khoảng filter. Mức tốt: > 15%.",
             icon="◑"), unsafe_allow_html=True)
         f3.markdown(score_card_html("Net Profit (Tổng)", fmt_m(total_np),
-            pct_badge(None), f"{len(fin_df)} tháng ghi nhận", "#8B5CF6",
+            pct_badge(None), f"{len(fin_df)} tháng ghi nhận", C_PURPLE,
             tooltip=f"Tổng lợi nhuận ròng = Revenue − COGS − OpEx cộng dồn qua {len(fin_df)} tháng trong khoảng filter. Đơn vị: triệu ₫.",
             icon="◆"), unsafe_allow_html=True)
         cf_color = C_GREEN if total_cf >= 0 else C_RED
@@ -977,7 +1004,7 @@ with tab_clients:
             values=list(top_c.head(5)["net"] / 1e6) + [rest_rev / 1e6],
             hole=0.6,
             marker=dict(
-                colors=[C_BLUE, C_ORANGE, "#8B5CF6", C_GREEN, C_YELLOW, C_MUTED],
+                colors=[C_BLUE, C_ORANGE, C_PURPLE, C_GREEN, C_YELLOW, C_MUTED],
                 line=dict(color=C_SURFACE, width=2),
             ),
             textinfo="percent",
@@ -1171,7 +1198,7 @@ with tab_products:
         fig_avg = go.Figure(go.Bar(
             x=by_rep["sales_rep"],
             y=by_rep["avg"],
-            marker_color="#8B5CF6", marker_line_width=0, opacity=0.85,
+            marker_color=C_PURPLE, marker_line_width=0, opacity=0.85,
             text=by_rep["avg"].map(lambda x: f"{x:.0f}M"),
             textposition="outside", textfont=dict(size=11, color=C_LABEL),
             hovertemplate="<b>%{x}</b><br>Avg: %{y:.0f}M ₫<extra></extra>",
@@ -1213,7 +1240,7 @@ with tab_data:
     display["Revenue (₫)"] = display["Revenue (₫)"].map(lambda x: f"{x:,.0f}")
 
     st.dataframe(
-        display, use_container_width=False, height=520, hide_index=True,
+        display, use_container_width=True, height=520, hide_index=True,
         column_config={
             "Date":          st.column_config.TextColumn("Date",    width="small"),
             "Project":       st.column_config.TextColumn("Project", width="large"),
