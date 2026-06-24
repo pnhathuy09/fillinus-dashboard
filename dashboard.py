@@ -116,62 +116,155 @@ def _get_groq_client():
         return None
     return _Groq(api_key=key)
 
-def _build_data_context(df: pd.DataFrame) -> str:
+def _build_data_context(df: pd.DataFrame, fin_df: pd.DataFrame = None) -> str:
     today = datetime.now()
     cur_year = today.year
 
-    lines = [f"=== FILLINUS LIVE DATA ({today.strftime('%Y-%m-%d')}) ===\n"]
+    lines = [f"=== FILLINUS LIVE DATA ({today.strftime('%Y-%m-%d')}) ==="]
+    lines.append("Nguồn: FG - Sales Master (Revenue sheet) + FG - Finance Master (Bookkeeping sheet)\n")
+
+    # ── SALES MASTER ─────────────────────────────────────────────────────────
+    lines.append("━━━ FG - SALES MASTER ━━━")
     pos = df[df["net"] > 0]
     total = pos["net"].sum()
 
+    # Revenue by year
     by_year = pos.groupby("year")["net"].agg(["sum", "count"]).sort_index(ascending=False)
-    lines.append("DOANH THU THEO NĂM:")
+    lines.append("\nDOANH THU THEO NĂM (tất cả):")
     for yr, row in by_year.iterrows():
         pct = row["sum"] / total * 100 if total else 0
-        lines.append(f"  {int(yr)}: {row['sum']/1e9:.2f} tỷ ₫ ({int(row['count'])} deals, {pct:.0f}% of total)")
+        lines.append(f"  {int(yr)}: {row['sum']/1e9:.2f} tỷ ₫  ({int(row['count'])} deals, {pct:.0f}%)")
 
-    lines.append(f"\nYTD {cur_year}: {pos[pos['year']==cur_year]['net'].sum()/1e9:.2f} tỷ ₫")
+    # YTD + quarterly current year
+    cur_pos = pos[pos["year"] == cur_year]
+    lines.append(f"\nYTD {cur_year}: {cur_pos['net'].sum()/1e9:.2f} tỷ ₫  ({len(cur_pos)} deals)")
+    if "quarter" in pos.columns:
+        by_q = cur_pos.groupby("quarter")["net"].agg(["sum","count"]).sort_index()
+        if not by_q.empty:
+            lines.append(f"THEO QUÝ — {cur_year}:")
+            for q, row in by_q.iterrows():
+                lines.append(f"  {q}: {row['sum']/1e6:.0f} triệu ₫ ({int(row['count'])} deals)")
 
-    top_clients = pos.groupby("client")["net"].sum().sort_values(ascending=False).head(5)
-    lines.append("\nTOP 5 CLIENTS (all time):")
+    # Project type breakdown
+    by_type = pos.groupby("project_type")["net"].agg(["sum","count"]).sort_values("sum", ascending=False)
+    if not by_type.empty:
+        lines.append("\nTHEO LOẠI DỰ ÁN (all time):")
+        for pt, row in by_type.iterrows():
+            if pt:
+                pct = row["sum"] / total * 100 if total else 0
+                lines.append(f"  {pt}: {row['sum']/1e9:.2f} tỷ ₫ ({pct:.0f}%, {int(row['count'])} deals)")
+
+    # New vs returning clients
+    if "new_client" in pos.columns:
+        new_rev  = pos[pos["new_client"] == "TRUE"]["net"].sum()
+        ret_rev  = pos[pos["new_client"] == "FALSE"]["net"].sum()
+        n_new    = pos[pos["new_client"] == "TRUE"]["client"].nunique()
+        n_ret    = pos[pos["new_client"] == "FALSE"]["client"].nunique()
+        lines.append(f"\nCLIENT MỚI vs QUAY LẠI (all time):")
+        lines.append(f"  Mới: {new_rev/1e9:.2f} tỷ ₫ ({n_new} clients)")
+        lines.append(f"  Quay lại: {ret_rev/1e9:.2f} tỷ ₫ ({n_ret} clients)")
+
+    # Top 10 clients all-time
+    top_clients = pos.groupby("client")["net"].sum().sort_values(ascending=False).head(10)
+    lines.append("\nTOP 10 CLIENTS (all time):")
     for i, (client, rev) in enumerate(top_clients.items(), 1):
         n = pos[pos["client"] == client].shape[0]
-        lines.append(f"  {i}. {client}: {rev/1e9:.2f} tỷ ₫ ({n} deals)")
+        lines.append(f"  {i}. {client}: {rev/1e6:.0f} triệu ₫ ({n} deals)")
 
-    by_prod = pos.groupby("product")["net"].agg(["sum", "count"]).sort_values("sum", ascending=False)
-    lines.append("\nPRODUCT / SERVICE MIX:")
+    # Top 5 clients current year
+    top_cur = cur_pos.groupby("client")["net"].sum().sort_values(ascending=False).head(5)
+    if not top_cur.empty:
+        lines.append(f"\nTOP 5 CLIENTS — {cur_year}:")
+        for i, (client, rev) in enumerate(top_cur.items(), 1):
+            lines.append(f"  {i}. {client}: {rev/1e6:.0f} triệu ₫")
+
+    # Product/service mix
+    by_prod = pos.groupby("product")["net"].agg(["sum","count"]).sort_values("sum", ascending=False)
+    lines.append("\nPRODUCT / SERVICE MIX (all time):")
     for prod, row in by_prod.iterrows():
-        pct = row["sum"] / total * 100 if total else 0
-        lines.append(f"  {prod}: {row['sum']/1e9:.2f} tỷ ({pct:.0f}%) — {int(row['count'])} deals")
+        if prod:
+            pct = row["sum"] / total * 100 if total else 0
+            lines.append(f"  {prod}: {row['sum']/1e6:.0f} triệu ₫ ({pct:.0f}%, {int(row['count'])} deals)")
 
-    by_rep = pos[pos["year"] == cur_year].groupby("sales_rep")["net"].sum().sort_values(ascending=False)
+    # Sales rep performance
+    by_rep = cur_pos.groupby("sales_rep")["net"].sum().sort_values(ascending=False)
     if not by_rep.empty:
-        lines.append(f"\nSALES REP PERFORMANCE ({cur_year}):")
+        lines.append(f"\nSALES REP — {cur_year}:")
         for rep, rev in by_rep.items():
-            lines.append(f"  {rep}: {rev/1e9:.2f} tỷ ₫")
+            if rep:
+                lines.append(f"  {rep}: {rev/1e6:.0f} triệu ₫")
 
-    # Monthly breakdown — current year and previous year
+    # Monthly revenue — current and prior year
     for yr in [cur_year, cur_year - 1]:
         yr_df = pos[pos["year"] == yr].copy()
         if yr_df.empty:
             continue
-        yr_df["month"] = yr_df["date"].dt.month
-        by_month = yr_df.groupby("month")["net"].agg(["sum", "count"]).sort_index()
+        yr_df["_mo"] = yr_df["date"].dt.month
+        by_mo = yr_df.groupby("_mo")["net"].agg(["sum","count"]).sort_index()
         lines.append(f"\nDOANH THU THEO THÁNG — {yr}:")
-        for mo, row in by_month.iterrows():
-            lines.append(
-                f"  Tháng {int(mo):02d}/{yr}: {row['sum']/1e6:.0f} triệu ₫"
-                f" ({int(row['count'])} deals)"
-            )
+        for mo, row in by_mo.iterrows():
+            lines.append(f"  T{int(mo):02d}/{yr}: {row['sum']/1e6:.0f} triệu ₫ ({int(row['count'])} deals)")
 
-    # Recent 15 transactions
-    recent = pos.sort_values("date", ascending=False).head(15)
-    lines.append("\n15 GIAO DỊCH GẦN NHẤT:")
+    # Recent 20 transactions
+    recent = pos.sort_values("date", ascending=False).head(20)
+    lines.append("\n20 GIAO DỊCH GẦN NHẤT (Sales Master):")
     for _, r in recent.iterrows():
         lines.append(
             f"  {r['date'].strftime('%d/%m/%Y')} | {r['name']} | {r['client']}"
             f" | {r['product']} | {r['net']/1e6:.0f} triệu ₫"
         )
+
+    # ── FINANCE MASTER ───────────────────────────────────────────────────────
+    lines.append("\n━━━ FG - FINANCE MASTER (Bookkeeping) ━━━")
+    if fin_df is not None and not fin_df.empty:
+        fpos = fin_df.copy()
+
+        # YTD financial summary
+        ytd_fin = fpos[fpos["month"].str.startswith(str(cur_year))]
+        if not ytd_fin.empty:
+            ytd_in   = ytd_fin["cash_in"].sum()
+            ytd_out  = ytd_fin["cash_out"].sum()
+            ytd_rev  = ytd_fin["revenue"].sum()
+            ytd_cogs = ytd_fin["cogs"].sum()
+            ytd_opex = ytd_fin["opex"].sum()
+            ytd_gp   = ytd_fin["gross_profit"].sum()
+            ytd_np   = ytd_fin["net_profit"].sum()
+            ytd_cf   = ytd_fin["cash_flow"].sum()
+            avg_gpm  = ytd_fin["gpm"].dropna().mean()
+            avg_npm  = ytd_fin["npm"].dropna().mean()
+            lines.append(f"\nTÀI CHÍNH YTD {cur_year}:")
+            lines.append(f"  Cash In:     {ytd_in/1e6:.0f} triệu ₫")
+            lines.append(f"  Cash Out:    {ytd_out/1e6:.0f} triệu ₫")
+            lines.append(f"  Net CF:      {ytd_cf/1e6:.0f} triệu ₫  ({'dương ✅' if ytd_cf >= 0 else 'âm ⚠️'})")
+            lines.append(f"  Revenue:     {ytd_rev/1e6:.0f} triệu ₫")
+            lines.append(f"  COGS:        {ytd_cogs/1e6:.0f} triệu ₫")
+            lines.append(f"  OpEx (G&A+Selling): {ytd_opex/1e6:.0f} triệu ₫")
+            lines.append(f"  Gross Profit:{ytd_gp/1e6:.0f} triệu ₫  (GPM avg {avg_gpm:.1f}%)")
+            lines.append(f"  Net Profit:  {ytd_np/1e6:.0f} triệu ₫  (NPM avg {avg_npm:.1f}%)")
+
+        # Monthly P&L table (all available months)
+        lines.append("\nP&L THEO THÁNG (Finance Master):")
+        lines.append("  Tháng     | Revenue  | COGS    | OpEx    | Gross P | Net P   | GPM%  | NPM%  | CashFlow")
+        for _, row in fpos.sort_values("month").iterrows():
+            gpm_s = f"{row['gpm']:.1f}%" if row["gpm"] is not None else "—"
+            npm_s = f"{row['npm']:.1f}%" if row["npm"] is not None else "—"
+            lines.append(
+                f"  {row['month']} | {row['revenue']/1e6:7.0f}M | {row['cogs']/1e6:6.0f}M"
+                f" | {row['opex']/1e6:6.0f}M | {row['gross_profit']/1e6:6.0f}M"
+                f" | {row['net_profit']/1e6:6.0f}M | {gpm_s:5} | {npm_s:5}"
+                f" | {row['cash_flow']/1e6:+.0f}M"
+            )
+
+        # Latest month highlight
+        latest = fpos.sort_values("month").iloc[-1]
+        lines.append(f"\nTHÁNG GẦN NHẤT ({latest['month']}):")
+        lines.append(f"  Cash In: {latest['cash_in']/1e6:.0f}M  Cash Out: {latest['cash_out']/1e6:.0f}M  Net CF: {latest['cash_flow']/1e6:+.0f}M")
+        gpm_l = f"{latest['gpm']:.1f}%" if latest["gpm"] is not None else "—"
+        npm_l = f"{latest['npm']:.1f}%" if latest["npm"] is not None else "—"
+        lines.append(f"  Revenue: {latest['revenue']/1e6:.0f}M  COGS: {latest['cogs']/1e6:.0f}M  OpEx: {latest['opex']/1e6:.0f}M")
+        lines.append(f"  GPM: {gpm_l}  NPM: {npm_l}  Gross Profit: {latest['gross_profit']/1e6:.0f}M")
+    else:
+        lines.append("  (Chưa có dữ liệu Finance Master)")
 
     return "\n".join(lines)
 
@@ -1764,7 +1857,7 @@ with _fab_container:
             _fab_msgs = st.session_state["chat_messages"]
             if _fab_msgs and _fab_msgs[-1]["role"] == "user":
                 with st.spinner("Đang xử lý..."):
-                    _dc = _build_data_context(df)
+                    _dc = _build_data_context(df, load_financials_df())
                     _sp = _chat_system_prompt(_dc)
                     _api_m = [{"role": x["role"], "content": x["content"]} for x in _fab_msgs]
                     try:
