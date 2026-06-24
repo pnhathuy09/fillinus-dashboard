@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from datetime import datetime, date
 import gspread
 from google.oauth2.service_account import Credentials
+import anthropic
 
 # ── Google Sheets constants ───────────────────────────────────────────────────
 _DIR             = os.path.dirname(os.path.abspath(__file__))
@@ -102,6 +103,89 @@ def yax(**kw):
     return base
 
 PLOT_CFG = {"displayModeBar": False}
+
+# ── AI Chat helpers ───────────────────────────────────────────────────────────
+@st.cache_resource
+def _get_anthropic_client():
+    key = (st.secrets.get("anthropic_api_key", "") or
+           os.environ.get("ANTHROPIC_API_KEY", ""))
+    if not key:
+        return None
+    return anthropic.Anthropic(api_key=key)
+
+def _build_data_context(df: pd.DataFrame) -> str:
+    today = datetime.now()
+    cur_year = today.year
+
+    lines = [f"=== FILLINUS LIVE DATA ({today.strftime('%Y-%m-%d')}) ===\n"]
+    pos = df[df["net"] > 0]
+    total = pos["net"].sum()
+
+    by_year = pos.groupby("year")["net"].agg(["sum", "count"]).sort_index(ascending=False)
+    lines.append("DOANH THU THEO NĂM:")
+    for yr, row in by_year.iterrows():
+        pct = row["sum"] / total * 100 if total else 0
+        lines.append(f"  {int(yr)}: {row['sum']/1e9:.2f} tỷ ₫ ({int(row['count'])} deals, {pct:.0f}% of total)")
+
+    lines.append(f"\nYTD {cur_year}: {pos[pos['year']==cur_year]['net'].sum()/1e9:.2f} tỷ ₫")
+
+    top_clients = pos.groupby("client")["net"].sum().sort_values(ascending=False).head(5)
+    lines.append("\nTOP 5 CLIENTS (all time):")
+    for i, (client, rev) in enumerate(top_clients.items(), 1):
+        n = pos[pos["client"] == client].shape[0]
+        lines.append(f"  {i}. {client}: {rev/1e9:.2f} tỷ ₫ ({n} deals)")
+
+    by_prod = pos.groupby("product")["net"].agg(["sum", "count"]).sort_values("sum", ascending=False)
+    lines.append("\nPRODUCT / SERVICE MIX:")
+    for prod, row in by_prod.iterrows():
+        pct = row["sum"] / total * 100 if total else 0
+        lines.append(f"  {prod}: {row['sum']/1e9:.2f} tỷ ({pct:.0f}%) — {int(row['count'])} deals")
+
+    by_rep = pos[pos["year"] == cur_year].groupby("sales_rep")["net"].sum().sort_values(ascending=False)
+    if not by_rep.empty:
+        lines.append(f"\nSALES REP PERFORMANCE ({cur_year}):")
+        for rep, rev in by_rep.items():
+            lines.append(f"  {rep}: {rev/1e9:.2f} tỷ ₫")
+
+    return "\n".join(lines)
+
+def _chat_system_prompt(data_ctx: str) -> str:
+    return f"""Bạn là Fillinus AI — trợ lý thông minh cho Fillinus Entertainment, một full-service music agency tại Việt Nam.
+
+## Về Fillinus
+- Địa chỉ: 42/30 Ung Văn Khiêm, Phường 25, Bình Thạnh, TP.HCM
+- Mission: Craft impactful music solutions that amplify brands, inspire artists, and elevate productions
+- Slogan: "Feeling us? Fill in us"
+- Hai mảng: **Agency (B2B)** — brand sync, strategic music, production | **Entertainment (B2C)** — artist management, fan engagement
+- Key metrics: 5B+ total views · 55+ happy clients · 110+ projects · 28M+ streams
+- Artist roster: Bùi Công Nam, Myra Trần, Anh Tú, Erik, Nguyễn Thúc Thùy Tiên, Juky San, Mai Tiến Dũng, Tiến Luật, Hoàng Duyên, Choco Trúc Phương, Vũ Phụng Tiên, CARA, JSOL, Doãn Hiếu, Ngọc Thanh Tâm, Đỗ Hoàng Dương
+- Core services: Music Strategy, Music Production, Music Partnership, Artist Management, Talent Scouting
+
+## Dữ liệu thực tế (live từ Google Sheets):
+{data_ctx}
+
+## Hướng dẫn trả lời
+- Default: Tiếng Việt. Nếu user hỏi bằng tiếng Anh → trả lời tiếng Anh.
+- Format số VND: "X,X tỷ ₫" hoặc "X triệu ₫" (không dùng số raw dạng 1234567890)
+- Ngắn gọn, súc tích — không padding text thừa
+- Khi phân tích business: **Current State → Trend → Risk/Opportunity → Action**
+- Dùng markdown (bold, list, table) khi giúp rõ hơn
+
+## Vai trò theo câu hỏi
+- **Báo cáo / số liệu**: Trích dẫn data từ FILLINUS LIVE DATA, tính toán, so sánh kỳ
+- **Chiến lược**: OKRs, định hướng B2B/B2C, competitive positioning, quarterly planning
+- **Marketing / Campaign**: Campaign brief, content calendar, TikTok/Facebook/YouTube strategy
+- **Artist / Talent**: Match artist với brief, check roster, recommend casting
+"""
+
+def _stream_chat(client: anthropic.Anthropic, messages: list, system: str):
+    with client.messages.stream(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        system=system,
+        messages=messages,
+    ) as stream:
+        yield from stream.text_stream
 
 # ── Data fetching ─────────────────────────────────────────────────────────────
 def parse_vnd(raw):
@@ -493,6 +577,32 @@ div[data-testid="stSelectbox"] > div > div {{
   color: {C_TEXT} !important;
 }}
 
+/* ── Chat tab ── */
+[data-testid="stChatMessage"] {{
+  background: {C_SURFACE} !important;
+  border: 1px solid {C_BORDER} !important;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+}}
+[data-testid="stChatMessage"][aria-label="user message"] {{
+  background: rgba(20,83,248,0.07) !important;
+  border-color: rgba(20,83,248,0.18) !important;
+}}
+[data-testid="stChatInputContainer"] > div {{
+  background: {C_SURFACE} !important;
+  border: 1px solid {C_BORDER} !important;
+  border-radius: 12px !important;
+}}
+[data-testid="stChatInputContainer"] textarea {{
+  background: transparent !important;
+  color: {C_TEXT} !important;
+  font-family: 'DM Sans', Inter, sans-serif !important;
+}}
+[data-testid="stChatInputContainer"] button[kind="primary"] {{
+  background: {C_BLUE} !important;
+  border-radius: 8px !important;
+}}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -650,8 +760,8 @@ st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
-tab_overview, tab_kpis, tab_clients, tab_products, tab_data = st.tabs([
-    "  Overview  ", "  KPIs  ", "  Clients  ", "  Products & Reps  ", "  Transactions  "
+tab_overview, tab_kpis, tab_clients, tab_products, tab_data, tab_chat = st.tabs([
+    "  Overview  ", "  KPIs  ", "  Clients  ", "  Products & Reps  ", "  Transactions  ", "  AI Chat  "
 ])
 
 # ════════════════════════════════════ OVERVIEW ════════════════════════════════
@@ -1248,6 +1358,100 @@ with tab_data:
             "Revenue (₫)":   st.column_config.TextColumn("Revenue", width="medium"),
         },
     )
+
+# ════════════════════════════════════ AI CHAT ════════════════════════════════
+with tab_chat:
+    _ai_client = _get_anthropic_client()
+
+    if _ai_client is None:
+        st.markdown(
+            f'<div style="padding:24px;background:{C_SURFACE};border:1px solid {C_BORDER};'
+            f'border-radius:12px;margin-top:8px">'
+            f'<div style="font-size:14px;font-weight:600;color:{C_TEXT};margin-bottom:8px">⚠️ API key chưa cấu hình</div>'
+            f'<div style="font-size:13px;color:{C_MUTED};line-height:1.6">'
+            f'Thêm <code style="background:{C_SURFACE2};padding:2px 6px;border-radius:4px;'
+            f'color:{C_BLUE}">anthropic_api_key</code> vào <b>Streamlit Secrets</b> '
+            f'(Settings → Secrets) để dùng tính năng AI Chat.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # ── Chat header ───────────────────────────────────────────────────────
+        col_h, col_btn = st.columns([7, 1])
+        with col_h:
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
+                f'<div style="width:32px;height:32px;background:{C_BLUE};border-radius:8px;'
+                f'display:flex;align-items:center;justify-content:center;font-size:14px;'
+                f'font-weight:800;color:#FCF6EE">F</div>'
+                f'<div>'
+                f'<div style="font-size:15px;font-weight:700;color:{C_TEXT}">Fillinus AI</div>'
+                f'<div style="font-size:11px;color:{C_MUTED}">Analyst · Strategist · Growth · Talent</div>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            if st.button("Clear", use_container_width=True, key="chat_clear"):
+                st.session_state.chat_messages = []
+                st.rerun()
+
+        # ── Session state ─────────────────────────────────────────────────────
+        if "chat_messages" not in st.session_state:
+            st.session_state.chat_messages = []
+
+        # ── Suggestion chips (shown only when chat is empty) ──────────────────
+        if not st.session_state.chat_messages:
+            st.markdown(
+                f'<div style="text-align:center;padding:32px 24px 20px;color:{C_MUTED}">'
+                f'<div style="font-size:32px;margin-bottom:10px">💬</div>'
+                f'<div style="font-size:14px;font-weight:500;color:{C_TEXT};margin-bottom:4px">'
+                f'Hỏi bất cứ điều gì về Fillinus</div>'
+                f'<div style="font-size:12px">Doanh thu · Chiến lược · Marketing · Artist</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            _suggestions = [
+                ("📊", "Doanh thu Q2 2026 là bao nhiêu?"),
+                ("🎯", "Nên focus B2B hay B2C trong Q3?"),
+                ("📣", "Lên campaign brief cho tháng 8"),
+                ("🎤", "Artist phù hợp brand FMCG mainstream"),
+            ]
+            for _col, (_icon, _text) in zip([sc1, sc2, sc3, sc4], _suggestions):
+                with _col:
+                    if st.button(f"{_icon} {_text}", use_container_width=True, key=f"sug_{_text[:12]}"):
+                        st.session_state["_chat_pending"] = _text
+                        st.rerun()
+
+        # ── Message history ───────────────────────────────────────────────────
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        # ── Input + pending suggestion ────────────────────────────────────────
+        _pending = st.session_state.pop("_chat_pending", None)
+        _prompt = st.chat_input("Hỏi về doanh thu, chiến lược, artist...") or _pending
+
+        if _prompt:
+            data_ctx  = _build_data_context(df)
+            sys_prompt = _chat_system_prompt(data_ctx)
+
+            st.session_state.chat_messages.append({"role": "user", "content": _prompt})
+            with st.chat_message("user"):
+                st.markdown(_prompt)
+
+            with st.chat_message("assistant"):
+                try:
+                    _api_msgs = [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.chat_messages
+                    ]
+                    full_text = st.write_stream(_stream_chat(_ai_client, _api_msgs, sys_prompt))
+                except Exception as e:
+                    full_text = f"⚠️ Lỗi API: {e}"
+                    st.markdown(full_text)
+
+            st.session_state.chat_messages.append({"role": "assistant", "content": full_text})
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(
