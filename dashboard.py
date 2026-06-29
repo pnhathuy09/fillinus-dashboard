@@ -360,7 +360,7 @@ def load_df():
 @st.cache_data(ttl=60)
 def load_financials_df():
     """
-    Reads Annual P&L from FG Finance Master (Bookkeeping sheet, top summary table).
+    Reads Annual P&L from FG Finance Master (Consolidated P&L sheet).
     Returns one row per fiscal year. 'month' column = 4-digit year string, e.g. '2024'.
     Source: Accrual-basis P&L — Revenue, COGS, Gross Profit, Selling OpEx, G&A, Net Profit.
     """
@@ -370,7 +370,7 @@ def load_financials_df():
 
     gc   = _gc()
     sh   = gc.open_by_key(FINANCE_MASTER_ID)
-    ws   = sh.worksheet("Bookkeeping")
+    ws   = sh.worksheet("Consolidated P&L")
     rows = ws.get_all_values()
     if not rows:
         return pd.DataFrame(columns=_COLS)
