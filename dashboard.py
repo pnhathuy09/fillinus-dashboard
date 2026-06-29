@@ -359,76 +359,92 @@ def load_df():
 
 @st.cache_data(ttl=60)
 def load_financials_df():
+    """
+    Reads Annual P&L from FG Finance Master (Bookkeeping sheet, top summary table).
+    Returns one row per fiscal year. 'month' column = 4-digit year string, e.g. '2024'.
+    Source: Accrual-basis P&L — Revenue, COGS, Gross Profit, Selling OpEx, G&A, Net Profit.
+    """
+    import re as _re
+    _COLS = ["month","revenue","cogs","opex","cash_in","cash_out",
+             "gross_profit","net_profit","cash_flow","gpm","npm"]
+
     gc   = _gc()
     sh   = gc.open_by_key(FINANCE_MASTER_ID)
     ws   = sh.worksheet("Bookkeeping")
     rows = ws.get_all_values()
     if not rows:
-        cols = ["month","revenue","cogs","opex","cash_in","cash_out",
-                "gross_profit","net_profit","cash_flow","gpm","npm"]
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=_COLS)
 
-    headers = rows[0]
-    col = {h: i for i, h in enumerate(headers)}
-    monthly = {}
+    # ── 1. Locate year header row (first 40 rows) ─────────────────────────────
+    year_cols   = []   # (col_index, normalized_year_str)
+    year_row_i  = None
+    for i, row in enumerate(rows[:40]):
+        hits = [(j, cell.strip()) for j, cell in enumerate(row)
+                if _re.match(r'^20\d\d(-20\d\d)?$', cell.strip())]
+        if len(hits) >= 3:
+            year_row_i = i
+            # Normalize "2021-2022" → "2022", keep "2023" etc.
+            year_cols = [(j, y.split("-")[-1]) for j, y in hits]
+            break
 
-    REVENUE_CATS = {"REVENUE", "Revenue"}
-    COGS_CATS    = {"COGS", "COGs"}
-    OPEX_CATS    = {"G&A", "SELLING EXPENSE", "Selling"}
+    if not year_cols:
+        return pd.DataFrame(columns=_COLS)
 
-    for r in rows[1:]:
-        def g(name):
-            i = col.get(name, -1)
-            return r[i].strip() if i >= 0 and i < len(r) else ""
-        cat   = g("CATEGORY")
-        year  = g("Year")
-        month = g("Month")
-        if not year or not month:
-            continue
-        try:
-            yr = int(year); mo = int(month)
-        except ValueError:
-            continue
-        key = f"{yr:04d}-{mo:02d}"
-        if key not in monthly:
-            monthly[key] = {"revenue": 0, "cogs": 0, "opex": 0,
-                            "cash_in": 0, "cash_out": 0}
-        cash_in  = parse_vnd(g("CASH IN"))
-        cash_out = parse_vnd(g("CASH OUT"))
-        monthly[key]["cash_in"]  += cash_in
-        monthly[key]["cash_out"] += cash_out
-        if cat in REVENUE_CATS:
-            monthly[key]["revenue"] += cash_in
-        elif cat in COGS_CATS:
-            monthly[key]["cogs"]    += cash_out
-        elif cat in OPEX_CATS:
-            monthly[key]["opex"]    += cash_out
+    # ── 2. Find metric rows by label search ────────────────────────────────────
+    # Each entry: key → list of substrings to match (case-insensitive) against col 0-2
+    METRICS = {
+        "revenue":      ["net revenue", "doanh thu thuần", "net sales"],
+        "cogs":         ["giá vốn hàng bán", "cost of goods", "cogs"],
+        "gross_profit": ["lợi nhuận gộp", "gross profit"],
+        "opex_selling": ["chi phí bán hàng", "selling"],
+        "opex_ga":      ["chi phí quản lý", "general and admin", "g&a"],
+        "net_profit":   ["lợi nhuận sau thuế", "net profit", "lnst"],
+    }
 
+    def _label(row):
+        return " ".join(c.strip().lower() for c in row[:3] if c.strip())
+
+    metric_row = {}
+    for key, patterns in METRICS.items():
+        for i, row in enumerate(rows):
+            lbl = _label(row)
+            if any(p in lbl for p in patterns):
+                # Avoid re-matching rows already claimed by a more specific key
+                if i not in metric_row.values():
+                    metric_row[key] = i
+                    break
+
+    def _get(metric_key, col_idx):
+        if metric_key not in metric_row:
+            return 0.0
+        row = rows[metric_row[metric_key]]
+        return parse_vnd(row[col_idx]) if col_idx < len(row) else 0.0
+
+    # ── 3. Build one record per year ──────────────────────────────────────────
     recs = []
-    for key in sorted(monthly):
-        m = monthly[key]
-        rev  = m["revenue"]
-        cogs = m["cogs"]
-        opex = m["opex"]
-        gp   = rev - cogs
-        np_v = rev - cogs - opex
-        cf   = m["cash_in"] - m["cash_out"]
+    for col_idx, yr in year_cols:
+        rev  = _get("revenue",      col_idx)
+        cogs = _get("cogs",         col_idx)
+        gp   = _get("gross_profit", col_idx) or max(rev - cogs, 0)
+        sell = _get("opex_selling", col_idx)
+        ga   = _get("opex_ga",      col_idx)
+        opex = sell + ga
+        np_v = _get("net_profit",   col_idx)
         recs.append({
-            "month":        key,
+            "month":        yr,
             "revenue":      rev,
             "cogs":         cogs,
             "opex":         opex,
-            "cash_in":      m["cash_in"],
-            "cash_out":     m["cash_out"],
+            "cash_in":      rev,
+            "cash_out":     cogs + opex,
             "gross_profit": gp,
             "net_profit":   np_v,
-            "cash_flow":    cf,
-            "gpm":          (gp  / rev * 100) if rev else None,
+            "cash_flow":    np_v,   # proxy — no separate CF data per year
+            "gpm":          (gp   / rev * 100) if rev else None,
             "npm":          (np_v / rev * 100) if rev else None,
         })
-    cols = ["month","revenue","cogs","opex","cash_in","cash_out",
-            "gross_profit","net_profit","cash_flow","gpm","npm"]
-    fin = pd.DataFrame(recs, columns=cols) if recs else pd.DataFrame(columns=cols)
+
+    fin = pd.DataFrame(recs, columns=_COLS) if recs else pd.DataFrame(columns=_COLS)
     return fin.reset_index(drop=True)
 
 @st.cache_data(ttl=60)
@@ -1130,13 +1146,14 @@ with tab_kpis:
 
     fin_df   = load_financials_df()
     if not fin_df.empty:
+        # month = "YYYY" (annual data) — filter by year integer
         fin_df["_year"] = fin_df["month"].str[:4].astype(int)
         if sel_years:
             fin_df = fin_df[fin_df["_year"].isin(sel_years)]
         if len(date_range) == 2:
-            d0_str = date_range[0].strftime("%Y-%m")
-            d1_str = date_range[1].strftime("%Y-%m")
-            fin_df = fin_df[(fin_df["month"] >= d0_str) & (fin_df["month"] <= d1_str)]
+            yr0 = date_range[0].year
+            yr1 = date_range[1].year
+            fin_df = fin_df[(fin_df["_year"] >= yr0) & (fin_df["_year"] <= yr1)]
         fin_df = fin_df.drop(columns=["_year"]).reset_index(drop=True)
     has_fin  = not fin_df.empty
 
@@ -1152,30 +1169,30 @@ with tab_kpis:
         avg_gpm   = fin_df["gpm"].dropna().mean()
         avg_npm   = fin_df["npm"].dropna().mean()
         total_np  = fin_df["net_profit"].sum()
-        total_cf  = fin_df["cash_flow"].sum()
 
+        total_rev = fin_df["revenue"].sum()
         f1, f2, f3, f4 = st.columns(4, gap="small")
         gpm_val = f"{latest['gpm']:.1f}%" if latest["gpm"] is not None else "—"
         npm_val = f"{latest['npm']:.1f}%" if latest["npm"] is not None else "—"
         f1.markdown(score_card_html("Gross Profit Margin", gpm_val,
             f'<span style="font-size:11px;color:{C_MUTED}">Avg {avg_gpm:.1f}%</span>',
-            f"Tháng {latest['month']}", C_GREEN,
-            tooltip=f"GPM = (Revenue − COGS) ÷ Revenue. Đo hiệu quả trực tiếp của sản xuất & dịch vụ. Trung bình {avg_gpm:.1f}% trong khoảng filter. Mức tốt: > 50%.",
+            f"Năm {latest['month']}", C_GREEN,
+            tooltip=f"GPM = (Revenue − COGS) ÷ Revenue. Nguồn: P&L kế toán (accrual). Trung bình {avg_gpm:.1f}% trong khoảng filter. Benchmark tốt: > 50%.",
             icon="%"), unsafe_allow_html=True)
         f2.markdown(score_card_html("Net Profit Margin", npm_val,
             f'<span style="font-size:11px;color:{C_MUTED}">Avg {avg_npm:.1f}%</span>',
-            f"Tháng {latest['month']}", C_BLUE,
-            tooltip=f"NPM = (Revenue − COGS − OpEx) ÷ Revenue. Lợi nhuận ròng sau toàn bộ chi phí. Trung bình {avg_npm:.1f}% trong khoảng filter. Mức tốt: > 15%.",
+            f"Năm {latest['month']}", C_BLUE,
+            tooltip=f"NPM = (Revenue − COGS − Selling − G&A) ÷ Revenue. Lợi nhuận ròng sau thuế. Trung bình {avg_npm:.1f}% trong khoảng filter. Benchmark tốt: > 15%.",
             icon="◑"), unsafe_allow_html=True)
-        f3.markdown(score_card_html("Net Profit (Tổng)", fmt_m(total_np),
-            pct_badge(None), f"{len(fin_df)} tháng ghi nhận", C_PURPLE,
-            tooltip=f"Tổng lợi nhuận ròng = Revenue − COGS − OpEx cộng dồn qua {len(fin_df)} tháng trong khoảng filter. Đơn vị: triệu ₫.",
+        f3.markdown(score_card_html("Net Profit (Cộng dồn)", fmt_m(total_np),
+            pct_badge(None), f"{len(fin_df)} năm ghi nhận", C_PURPLE,
+            tooltip=f"Tổng lợi nhuận ròng sau thuế cộng dồn qua {len(fin_df)} năm trong khoảng filter. Nguồn: Annual P&L (accrual basis). Đơn vị: triệu ₫.",
             icon="◆"), unsafe_allow_html=True)
-        cf_color = C_GREEN if total_cf >= 0 else C_RED
-        f4.markdown(score_card_html("Net Cash Flow", fmt_m(total_cf),
-            pct_badge(None), "Cash In − Cash Out", cf_color,
-            tooltip="Dòng tiền ròng = tổng Cash In − Cash Out thực tế qua tài khoản. Khác lợi nhuận kế toán: đây là tiền mặt thực, phản ánh sức khỏe thanh khoản.",
-            icon="⇄"), unsafe_allow_html=True)
+        rev_color = C_GREEN if total_rev >= 0 else C_RED
+        f4.markdown(score_card_html("Total Revenue", fmt_m(total_rev),
+            pct_badge(None), f"{len(fin_df)} năm ghi nhận", rev_color,
+            tooltip=f"Tổng doanh thu thuần cộng dồn qua {len(fin_df)} năm trong khoảng filter. Nguồn: Annual P&L (accrual basis). Đơn vị: triệu ₫.",
+            icon="₫"), unsafe_allow_html=True)
 
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
@@ -1199,46 +1216,39 @@ with tab_kpis:
                 xaxis=xax(tickangle=-30),
                 yaxis=yax(title="%"),
             )
-            card_header("Gross & Net Margin Trend", "Monthly %")
+            card_header("Gross & Net Margin Trend", "Annual % · Accrual basis")
             st.plotly_chart(fig_margin, use_container_width=True, config=PLOT_CFG)
             card_close()
 
         with fc2:
-            cf_colors = [C_GREEN if v >= 0 else C_RED for v in fin_df["cash_flow"]]
+            np_colors = [C_GREEN if v >= 0 else C_RED for v in fin_df["net_profit"]]
             fig_cf = go.Figure(go.Bar(
-                x=fin_df["month"], y=fin_df["cash_flow"] / 1e6,
-                marker_color=cf_colors, marker_line_width=0,
-                text=fin_df["cash_flow"].map(lambda x: f"{x/1e6:.0f}M"),
+                x=fin_df["month"], y=fin_df["net_profit"] / 1e6,
+                marker_color=np_colors, marker_line_width=0,
+                text=fin_df["net_profit"].map(lambda x: f"{x/1e6:.0f}M"),
                 textposition="outside", textfont=dict(size=10, color=C_LABEL),
                 hovertemplate="<b>%{x}</b><br>%{y:.0f}M ₫<extra></extra>",
             ))
             fig_cf.update_layout(
                 **layout(), height=220, showlegend=False, bargap=0.3,
-                xaxis=xax(tickangle=-30),
+                xaxis=xax(tickangle=0),
                 yaxis=yax(title="triệu ₫"),
             )
-            card_header("Net Cash Flow by Month", "Cash In − Cash Out · xanh=dương, đỏ=âm")
+            card_header("Net Profit by Year", "Sau thuế · xanh=lời, đỏ=lỗ · Accrual basis")
             st.plotly_chart(fig_cf, use_container_width=True, config=PLOT_CFG)
             card_close()
 
     else:
         f1, f2, f3, f4 = st.columns(4, gap="small")
         for col, lbl in zip([f1,f2,f3,f4],
-                            ["Gross Profit Margin","Net Profit Margin","Net Profit","Cash Flow"]):
+                            ["Gross Profit Margin","Net Profit Margin","Net Profit (Cộng dồn)","Total Revenue"]):
             col.markdown(score_card_html(lbl, "—", pct_badge(None),
-                "Nhập Monthly Financials", C_MUTED), unsafe_allow_html=True)
+                "Không tải được dữ liệu", C_MUTED), unsafe_allow_html=True)
         st.markdown(
             f'<div style="background:rgba(107,122,153,0.08);border:1px solid {C_BORDER};'
             f'border-radius:8px;padding:14px 18px;margin-top:14px;font-size:12px;color:{C_MUTED}">'
-            f'📋 <b>Chưa có dữ liệu Monthly Financials.</b> '
-            f'Mở database <b>Monthly Financials</b> trong Notion và nhập dữ liệu mỗi tháng.<br><br>'
-            f'<b>Cột cần nhập:</b><br>'
-            f'• <code>Month</code> — "2026-06"<br>'
-            f'• <code>Revenue_VND</code> — Doanh thu tháng (từ Projects & Contracts)<br>'
-            f'• <code>COGS_VND</code> — Chi phí trực tiếp (studio, session fee, nhân công dự án)<br>'
-            f'• <code>OpEx_VND</code> — Chi phí vận hành (lương, văn phòng, phần mềm, marketing)<br>'
-            f'• <code>Cash_In</code> — Tiền thực nhận vào tài khoản<br>'
-            f'• <code>Cash_Out</code> — Tiền thực chi ra</div>',
+            f'⚠️ <b>Không tải được dữ liệu từ FG Finance Master.</b> '
+            f'Kiểm tra kết nối Google Sheets và quyền truy cập service account.</div>',
             unsafe_allow_html=True,
         )
 
