@@ -1039,7 +1039,7 @@ with tab_overview:
 
     card_header("Revenue Over Time",
                 f"{by_month['month_str'].min()} → {by_month['month_str'].max()}")
-    st.plotly_chart(fig_area, width="stretch", config=PLOT_CFG)
+    st.plotly_chart(fig_area, use_container_width=True, config=PLOT_CFG)
     card_close()
 
     # Annual + Quarterly ──────────────────────────────────────────────────────
@@ -1067,7 +1067,7 @@ with tab_overview:
             yaxis=yax(),
         )
         card_header("Annual Revenue", "Current year highlighted")
-        st.plotly_chart(fig_yr, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_yr, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     with col_b:
@@ -1091,7 +1091,7 @@ with tab_overview:
             yaxis=yax(),
         )
         card_header("Quarterly Revenue", "Last 12 quarters")
-        st.plotly_chart(fig_q, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_q, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     # Year-over-Year ──────────────────────────────────────────────────────────
@@ -1121,7 +1121,7 @@ with tab_overview:
         yaxis=yax(title="triệu ₫"),
     )
     card_header("Year-over-Year Comparison", "Monthly revenue per year")
-    st.plotly_chart(fig_yoy, width="stretch", config=PLOT_CFG)
+    st.plotly_chart(fig_yoy, use_container_width=True, config=PLOT_CFG)
     card_close()
 
 
@@ -1200,7 +1200,7 @@ with tab_kpis:
                 yaxis=yax(title="%"),
             )
             card_header("Gross & Net Margin Trend", "Monthly %")
-            st.plotly_chart(fig_margin, width="stretch", config=PLOT_CFG)
+            st.plotly_chart(fig_margin, use_container_width=True, config=PLOT_CFG)
             card_close()
 
         with fc2:
@@ -1218,7 +1218,7 @@ with tab_kpis:
                 yaxis=yax(title="triệu ₫"),
             )
             card_header("Net Cash Flow by Month", "Cash In − Cash Out · xanh=dương, đỏ=âm")
-            st.plotly_chart(fig_cf, width="stretch", config=PLOT_CFG)
+            st.plotly_chart(fig_cf, use_container_width=True, config=PLOT_CFG)
             card_close()
 
     else:
@@ -1302,7 +1302,7 @@ with tab_kpis:
         yaxis=yax(title="triệu ₫"),
     )
     card_header("New vs Returning Revenue by Year", "Stacked · filtered period")
-    st.plotly_chart(fig_nr, width="stretch", config=PLOT_CFG)
+    st.plotly_chart(fig_nr, use_container_width=True, config=PLOT_CFG)
     card_close()
 
 
@@ -1372,7 +1372,7 @@ with tab_cashflow:
             xaxis=xax(tickangle=-30), yaxis=yax(title="triệu ₫"),
         )
         card_header("Monthly Cash Flow", "Cash In (xanh) · Cash Out (cam) · Net (đường)")
-        st.plotly_chart(fig_bk, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_bk, use_container_width=True, config=PLOT_CFG)
         card_close()
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -1401,7 +1401,7 @@ with tab_cashflow:
                 xaxis=xax(title="triệu ₫"), yaxis=yax(),
             )
             card_header("By Category", "Cash In vs Cash Out")
-            st.plotly_chart(fig_cat, width="stretch", config=PLOT_CFG)
+            st.plotly_chart(fig_cat, use_container_width=True, config=PLOT_CFG)
             card_close()
 
         with cb2:
@@ -1426,7 +1426,7 @@ with tab_cashflow:
                 xaxis=xax(title="triệu ₫"), yaxis=yax(),
             )
             card_header("By Type of Cash Flow", "Cash In vs Cash Out")
-            st.plotly_chart(fig_type, width="stretch", config=PLOT_CFG)
+            st.plotly_chart(fig_type, use_container_width=True, config=PLOT_CFG)
             card_close()
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -1494,7 +1494,7 @@ with tab_clients:
             yaxis=yax(autorange="reversed"),
         ))
         card_header(f"Top {n} Clients", "All-time · filtered period")
-        st.plotly_chart(fig_cl, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_cl, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     with col_c2:
@@ -1520,7 +1520,7 @@ with tab_clients:
             margin=dict(t=8, b=8, l=0, r=100),
         ))
         card_header("Client Concentration", "Top 5 vs rest")
-        st.plotly_chart(fig_conc, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_conc, use_container_width=True, config=PLOT_CFG)
         card_close()
 
         # New clients per year
@@ -1542,7 +1542,7 @@ with tab_clients:
             yaxis=yax(),
         )
         card_header("New / Reactivated Clients per Year")
-        st.plotly_chart(fig_new, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_new, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     # Client × Year heatmap
@@ -1576,7 +1576,7 @@ with tab_clients:
         yaxis=yax(autorange="reversed"),
     ))
     card_header("Top 8 Clients · Revenue by Year", "Heatmap — deeper blue = higher revenue")
-    st.plotly_chart(fig_heat, width="stretch", config=PLOT_CFG)
+    st.plotly_chart(fig_heat, use_container_width=True, config=PLOT_CFG)
     card_close()
 
 
@@ -1607,7 +1607,7 @@ with tab_products:
             margin=dict(t=8, b=8, l=0, r=0),
         ))
         card_header("Product / Service Mix", "Share of total revenue")
-        st.plotly_chart(fig_prod, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_prod, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     with pc2:
@@ -1631,7 +1631,7 @@ with tab_products:
             yaxis=yax(),
         )
         card_header("Revenue by Project Type")
-        st.plotly_chart(fig_type, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_type, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     # Stacked area — product trend
@@ -1660,7 +1660,7 @@ with tab_products:
         yaxis=yax(title="triệu ₫"),
     )
     card_header("Product Revenue Stack by Year", "Top 5 products")
-    st.plotly_chart(fig_stack, width="stretch", config=PLOT_CFG)
+    st.plotly_chart(fig_stack, use_container_width=True, config=PLOT_CFG)
     card_close()
 
     # Sales rep
@@ -1693,7 +1693,7 @@ with tab_products:
             yaxis=yax(),
         )
         card_header("Revenue by Sales Rep")
-        st.plotly_chart(fig_rep, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_rep, use_container_width=True, config=PLOT_CFG)
         card_close()
 
     with rc2:
@@ -1711,7 +1711,7 @@ with tab_products:
             yaxis=yax(),
         )
         card_header("Avg Deal Size by Sales Rep")
-        st.plotly_chart(fig_avg, width="stretch", config=PLOT_CFG)
+        st.plotly_chart(fig_avg, use_container_width=True, config=PLOT_CFG)
         card_close()
 
 
