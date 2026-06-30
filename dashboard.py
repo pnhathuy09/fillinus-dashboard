@@ -1467,13 +1467,15 @@ with tab_kpis:
                 hovertemplate="<b>%{label}</b><br>%{value:.2f}%<extra></extra>",
             ))
             fig_pie.update_layout(
-                **layout(margin=dict(t=8, b=8, l=8, r=8)),
-                height=250, showlegend=True,
-                legend=dict(
-                    orientation="v", x=1.02, y=0.5,
-                    font=dict(size=10, color=C_TEXT),
-                    bgcolor="rgba(0,0,0,0)",
+                **layout(
+                    margin=dict(t=8, b=8, l=8, r=8),
+                    legend=dict(
+                        orientation="v", x=1.02, y=0.5,
+                        font=dict(size=10, color=C_TEXT),
+                        bgcolor="rgba(0,0,0,0)",
+                    ),
                 ),
+                height=250, showlegend=True,
             )
             card_header("Cơ Cấu Cổ Đông", "Tỉ lệ sở hữu vốn điều lệ")
             st.plotly_chart(fig_pie, use_container_width=True, config=PLOT_CFG)
