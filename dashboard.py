@@ -2039,9 +2039,10 @@ with tab_data:
 
     st.caption(f"{len(tdf)} transactions · {fmt_b(tdf['net'].sum())}")
 
-    display = tdf[["date_str","name","client","product","project_type","sales_rep","net_raw","net"]].copy()
+    tdf_sorted = tdf.sort_values("date", ascending=False)
+    display = tdf_sorted[["date_str","name","client","product","project_type","sales_rep","net_raw","net"]].copy()
     display.columns = ["Date","Project","Client","Product","Type","Sales Rep","Revenue (raw)","Revenue (₫)"]
-    display = display.sort_values("Date", ascending=False).reset_index(drop=True)
+    display = display.reset_index(drop=True)
     display["Revenue (₫)"] = display["Revenue (₫)"].map(lambda x: f"{x:,.0f}")
 
     _styled = display.style.set_properties(**{
