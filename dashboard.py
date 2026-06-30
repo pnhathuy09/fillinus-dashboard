@@ -4,6 +4,7 @@ Run: python3 -m streamlit run dashboard.py
 """
 
 import os
+from PIL import Image as _PILImage
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -678,9 +679,10 @@ def card_close():
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG & GLOBAL CSS
 # ══════════════════════════════════════════════════════════════════════════════
+_FAVICON = _PILImage.open(os.path.join(os.path.dirname(__file__), "favicon.png"))
 st.set_page_config(
     page_title="Fillinus · Revenue",
-    page_icon="🎵",
+    page_icon=_FAVICON,
     layout="wide",
     initial_sidebar_state="collapsed",
 )
