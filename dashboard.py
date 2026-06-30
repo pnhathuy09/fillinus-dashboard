@@ -682,7 +682,7 @@ st.set_page_config(
     page_title="Fillinus · Revenue",
     page_icon="🎵",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 float_init()
 
@@ -982,7 +982,54 @@ button[kind="secondary"]:hover {{
   border-color: {C_MUTED} !important;
 }}
 
+/* ── Mobile responsive ── */
+@media (max-width: 768px) {{
+  .block-container {{
+    padding: 8px 12px 60px !important;
+    max-width: 100% !important;
+  }}
+  [data-testid="stMetric"] {{
+    padding: 10px 12px !important;
+  }}
+  [data-testid="stMetricValue"] > div {{
+    font-size: 18px !important;
+  }}
+  [data-testid="stMetricLabel"] > div {{
+    font-size: 11px !important;
+  }}
+  h1 {{ font-size: 18px !important; }}
+  h2, h3 {{ font-size: 14px !important; }}
+  .stTabs [role="tab"] {{
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+  }}
+  [data-testid="stSidebar"] {{
+    width: 280px !important;
+  }}
+}}
+
 </style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<script>
+(function() {
+  var head = document.head;
+  var metas = [
+    ['name', 'apple-mobile-web-app-capable', 'content', 'yes'],
+    ['name', 'apple-mobile-web-app-status-bar-style', 'content', 'black-translucent'],
+    ['name', 'apple-mobile-web-app-title', 'content', 'Fillinus'],
+    ['name', 'mobile-web-app-capable', 'content', 'yes'],
+    ['name', 'theme-color', 'content', '#060D1E'],
+  ];
+  metas.forEach(function(m) {
+    var el = document.createElement('meta');
+    el.setAttribute(m[0], m[1]);
+    el.setAttribute(m[2], m[3]);
+    head.appendChild(el);
+  });
+})();
+</script>
 """, unsafe_allow_html=True)
 
 # ── Topbar ────────────────────────────────────────────────────────────────────
