@@ -2153,7 +2153,8 @@ with _fab_container:
                         unsafe_allow_html=True,
                     )
                 for _m in st.session_state["chat_messages"]:
-                    with st.chat_message(_m["role"]):
+                    _av = "👤" if _m["role"] == "user" else "🤖"
+                    with st.chat_message(_m["role"], avatar=_av):
                         st.markdown(_m["content"])
 
             # ── Generate assistant reply if last msg is from user ─────────────
