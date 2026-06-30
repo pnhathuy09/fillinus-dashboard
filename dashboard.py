@@ -116,7 +116,8 @@ def _get_groq_client():
         return None
     return _Groq(api_key=key)
 
-def _build_data_context(df: pd.DataFrame, fin_df: pd.DataFrame = None) -> str:
+def _build_data_context(df: pd.DataFrame, fin_df: pd.DataFrame = None,
+                        div_data: tuple = None) -> str:
     today = datetime.now()
     cur_year = today.year
 
@@ -265,6 +266,40 @@ def _build_data_context(df: pd.DataFrame, fin_df: pd.DataFrame = None) -> str:
         lines.append(f"  GPM: {gpm_l}  NPM: {npm_l}  Gross Profit: {latest['gross_profit']/1e6:.0f}M")
     else:
         lines.append("  (Chưa có dữ liệu Finance Master)")
+
+    # ── DIVIDEND & SHAREHOLDERS ───────────────────────────────────────────────
+    lines.append("\n━━━ CỔ TỨC & CỔ ĐÔNG (Trả cổ tức sheet) ━━━")
+    if div_data is not None:
+        _sh_df, _period_df, _detail_df = div_data
+        if not _sh_df.empty:
+            lines.append("\nCƠ CẤU CỔ ĐÔNG:")
+            for _, r in _sh_df.iterrows():
+                lines.append(
+                    f"  {r['name']}: {r['ownership_pct']*100:.2f}% | "
+                    f"Vốn góp: {r['capital']/1e6:.0f}M ₫ | "
+                    f"Tổng cổ tức nhận (lịch sử): {r['cumulative_div']/1e6:.1f}M ₫"
+                )
+        if not _period_df.empty:
+            lines.append("\nCỔ TỨC THEO KỲ:")
+            for _, r in _period_df.iterrows():
+                lines.append(
+                    f"  {r['period']}: Net Profit {r['net_profit']/1e6:.0f}M ₫ | "
+                    f"Tỉ lệ {r['div_pct']*100:.0f}% | "
+                    f"Tổng cổ tức {r['div_cash']/1e6:.0f}M ₫ | "
+                    f"Đã trả {r['total_paid']/1e6:.0f}M ₫ | "
+                    f"Còn lại {r['total_remaining']/1e6:.0f}M ₫"
+                )
+        if not _detail_df.empty:
+            lines.append("\nCHI TIẾT CỔ TỨC THEO CỔ ĐÔNG & KỲ:")
+            for _, r in _detail_df.iterrows():
+                lines.append(
+                    f"  [{r['period']}] {r['stakeholder']}: "
+                    f"Cổ tức {r['div_net']/1e6:.1f}M ₫ | "
+                    f"Đã nhận {r['paid']/1e6:.1f}M ₫ | "
+                    f"Còn lại {r['remaining']/1e6:.1f}M ₫"
+                )
+    else:
+        lines.append("  (Chưa có dữ liệu cổ tức)")
 
     return "\n".join(lines)
 
@@ -2133,7 +2168,11 @@ with _fab_container:
                     })
                     st.rerun()
                 with st.spinner("Đang xử lý..."):
-                    _dc = _build_data_context(df, load_financials_df())
+                    try:
+                        _div_data = load_dividends_df()
+                    except Exception:
+                        _div_data = None
+                    _dc = _build_data_context(df, load_financials_df(), _div_data)
                     _sp = _chat_system_prompt(_dc)
                     _api_m = [{"role": x["role"], "content": x["content"]} for x in _fab_msgs]
                     try:
