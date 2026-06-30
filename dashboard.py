@@ -1770,19 +1770,21 @@ with tab_clients:
         top_c = (
             dff[dff["client"] != ""]
                .groupby("client")["net"].sum()
-               .reset_index().sort_values("net", ascending=False).head(n)
+               .nlargest(n)
+               .sort_values(ascending=True)
+               .reset_index()
         )
         top_c["M"]     = top_c["net"] / 1e6
         top_c["label"] = top_c["M"].map(lambda x: f"{x:.0f}M")
-        bar_colors     = [C_BLUE if i < 3 else "rgba(20,83,248,0.42)" for i in range(len(top_c))]
+        bar_colors     = [C_BLUE if i >= len(top_c) - 3 else "rgba(20,83,248,0.42)" for i in range(len(top_c))]
 
         fig_cl = go.Figure(go.Bar(
             x=top_c["M"],
             y=top_c["client"],
             orientation="h",
-            marker_color=bar_colors[::-1],
+            marker_color=bar_colors,
             marker_line_width=0,
-            text=top_c["label"].values[::-1].tolist(),
+            text=top_c["label"].tolist(),
             textposition="outside",
             textfont=dict(size=10, color=C_LABEL),
             hovertemplate="<b>%{y}</b><br>%{x:.0f}M ₫<extra></extra>",
@@ -1792,7 +1794,7 @@ with tab_clients:
             showlegend=False,
             margin=dict(t=8, b=8, l=4, r=60),
             xaxis=xax(title="Revenue (triệu ₫)"),
-            yaxis=yax(autorange="reversed"),
+            yaxis=yax(),
         ))
         card_header(f"Top {n} Clients", "All-time · filtered period")
         st.plotly_chart(fig_cl, use_container_width=True, config=PLOT_CFG)
@@ -1800,11 +1802,11 @@ with tab_clients:
 
     with col_c2:
         # Concentration donut
-        top5_rev = top_c.head(5)["net"].sum()
+        top5_rev = top_c.tail(5)["net"].sum()
         rest_rev = dff["net"].sum() - top5_rev
         fig_conc = go.Figure(go.Pie(
-            labels=list(top_c.head(5)["client"]) + ["Others"],
-            values=list(top_c.head(5)["net"] / 1e6) + [rest_rev / 1e6],
+            labels=list(top_c.tail(5)["client"]) + ["Others"],
+            values=list(top_c.tail(5)["net"] / 1e6) + [rest_rev / 1e6],
             hole=0.6,
             marker=dict(
                 colors=[C_BLUE, C_ORANGE, C_PURPLE, C_GREEN, C_YELLOW, C_MUTED],
