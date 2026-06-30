@@ -447,6 +447,95 @@ def load_financials_df():
     fin = pd.DataFrame(recs, columns=_COLS) if recs else pd.DataFrame(columns=_COLS)
     return fin.reset_index(drop=True)
 
+@st.cache_data(ttl=300)
+def load_dividends_df():
+    """
+    Reads 'Trả cổ tức' sheet. Returns (sh_df, period_df, detail_df).
+    sh_df      : shareholders — name, capital, ownership_pct, cumulative_div
+    period_df  : per-period summary — period, net_profit, div_pct, div_cash, total_paid, total_remaining
+    detail_df  : per-period per-stakeholder — period, stakeholder, div_net, paid, remaining
+    """
+    gc  = _gc()
+    sh  = gc.open_by_key(FINANCE_MASTER_ID)
+    ws  = sh.worksheet("Trả cổ tức")
+    rows = ws.get_all_values()
+    if len(rows) < 3:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    # ── Shareholders (rows 2+, cols 0-3) ─────────────────────────────────────
+    sh_recs = []
+    for r in rows[2:]:
+        name = r[0].strip() if r else ""
+        if not name:
+            continue
+        cap     = parse_vnd(r[1]) if len(r) > 1 else 0.0
+        pct_raw = r[2].strip()    if len(r) > 2 else ""
+        try:
+            pct = float(pct_raw.replace("%", "")) / 100
+        except ValueError:
+            pct = 0.0
+        cum = parse_vnd(r[3]) if len(r) > 3 else 0.0
+        sh_recs.append({"name": name, "capital": cap, "ownership_pct": pct, "cumulative_div": cum})
+    sh_df = pd.DataFrame(sh_recs) if sh_recs else pd.DataFrame()
+
+    # ── Dividend history (cols 5-12) ──────────────────────────────────────────
+    # Period(5), Net Profit(6), % Div(7), Div Cash(8), Stakeholder(9), Div net(10), Paid(11), Remaining(12)
+    period_map  = {}   # period → {net_profit, div_pct, div_cash}
+    detail_recs = []
+    cur_period  = None
+
+    for r in rows[1:]:
+        if len(r) < 6:
+            continue
+        p = r[5].strip() if len(r) > 5 else ""
+        if p:
+            cur_period = p
+            if cur_period not in period_map:
+                np_s = r[6].strip() if len(r) > 6 else ""
+                dp_s = r[7].strip() if len(r) > 7 else ""
+                dc_s = r[8].strip() if len(r) > 8 else ""
+                try:
+                    div_pct = float(dp_s.replace("%", "")) / 100
+                except ValueError:
+                    div_pct = 0.0
+                period_map[cur_period] = {
+                    "net_profit": parse_vnd(np_s) if np_s else 0.0,
+                    "div_pct":    div_pct,
+                    "div_cash":   parse_vnd(dc_s) if dc_s else 0.0,
+                }
+        stk = r[9].strip()  if len(r) > 9  else ""
+        if cur_period and stk:
+            dn_s = r[10].strip() if len(r) > 10 else ""
+            pd_s = r[11].strip() if len(r) > 11 else ""
+            rm_s = r[12].strip() if len(r) > 12 else ""
+            detail_recs.append({
+                "period":      cur_period,
+                "stakeholder": stk,
+                "div_net":     parse_vnd(dn_s) if dn_s else 0.0,
+                "paid":        parse_vnd(pd_s) if pd_s else 0.0,
+                "remaining":   parse_vnd(rm_s) if rm_s else 0.0,
+            })
+
+    period_recs = []
+    for p, v in period_map.items():
+        det = [d for d in detail_recs if d["period"] == p]
+        paid_sum      = sum(d["paid"]      for d in det)
+        remaining_sum = sum(d["remaining"] for d in det)
+        if not det and v["div_cash"] > 0:
+            remaining_sum = v["div_cash"]
+        period_recs.append({
+            "period":          p,
+            "net_profit":      v["net_profit"],
+            "div_pct":         v["div_pct"],
+            "div_cash":        v["div_cash"],
+            "total_paid":      paid_sum,
+            "total_remaining": remaining_sum,
+        })
+
+    period_df = pd.DataFrame(period_recs) if period_recs else pd.DataFrame()
+    detail_df = pd.DataFrame(detail_recs) if detail_recs else pd.DataFrame()
+    return sh_df, period_df, detail_df
+
 @st.cache_data(ttl=60)
 def load_bookkeeping_df():
     gc   = _gc()
@@ -1314,6 +1403,167 @@ with tab_kpis:
     card_header("New vs Returning Revenue by Year", "Stacked · filtered period")
     st.plotly_chart(fig_nr, use_container_width=True, config=PLOT_CFG)
     card_close()
+
+    # ── Divider ───────────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="height:3px;background:{C_BORDER};border-radius:2px;margin:20px 0"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Section 3: Cổ tức & Cổ đông ──────────────────────────────────────────
+    st.markdown(
+        f'<div style="font-size:12px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;'
+        f'color:{C_MUTED};margin-bottom:12px">Cổ tức & Cổ đông</div>',
+        unsafe_allow_html=True,
+    )
+
+    try:
+        _sh_df, _period_df, _detail_df = load_dividends_df()
+    except Exception:
+        _sh_df, _period_df, _detail_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    if not _sh_df.empty and not _period_df.empty:
+        _total_cap       = _sh_df["capital"].sum()
+        _total_declared  = _period_df["div_cash"].sum()
+        _total_paid      = _period_df["total_paid"].sum()
+        _total_remaining = _period_df["total_remaining"].sum()
+
+        # ── KPI cards ─────────────────────────────────────────────────────────
+        dv1, dv2, dv3, dv4 = st.columns(4, gap="small")
+        dv1.markdown(score_card_html(
+            "Vốn Điều Lệ", fmt_m(_total_cap), pct_badge(None),
+            f"{len(_sh_df)} cổ đông", C_BLUE, icon="Ξ",
+            tooltip="Tổng vốn góp của 4 cổ đông sáng lập."), unsafe_allow_html=True)
+        dv2.markdown(score_card_html(
+            "Cổ Tức Tuyên Bố", fmt_m(_total_declared), pct_badge(None),
+            "Tất cả kỳ có lợi nhuận", C_GREEN, icon="✦",
+            tooltip="Tổng cổ tức đã tuyên bố qua các kỳ (50% Net Profit). Kỳ lỗ = 0%."), unsafe_allow_html=True)
+        dv3.markdown(score_card_html(
+            "Đã Thanh Toán", fmt_m(_total_paid), pct_badge(None),
+            f"{_total_paid/_total_declared*100:.0f}% of declared" if _total_declared else "—",
+            C_ORANGE, icon="✓",
+            tooltip="Số tiền cổ tức đã thực sự chuyển khoản cho cổ đông."), unsafe_allow_html=True)
+        _rem_col = C_RED if _total_remaining > 0 else C_GREEN
+        dv4.markdown(score_card_html(
+            "Chưa Thanh Toán", fmt_m(_total_remaining), pct_badge(None),
+            "Còn phải trả cho cổ đông", _rem_col,
+            icon="!" if _total_remaining > 0 else "✓",
+            tooltip="Cổ tức đã tuyên bố nhưng chưa chuyển khoản. Bao gồm cả 2026 chưa phân bổ."), unsafe_allow_html=True)
+
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+        # ── Charts: pie (left) + dividend bar (right) ─────────────────────────
+        pie_col, bar_col = st.columns([1, 2], gap="small")
+
+        with pie_col:
+            _pie_colors = [C_BLUE, C_ORANGE, C_GREEN, C_PURPLE]
+            fig_pie = go.Figure(go.Pie(
+                labels=_sh_df["name"],
+                values=(_sh_df["ownership_pct"] * 100).round(2),
+                hole=0.55,
+                marker=dict(colors=_pie_colors),
+                textinfo="percent",
+                textfont=dict(size=11, color=C_TEXT),
+                hovertemplate="<b>%{label}</b><br>%{value:.2f}%<extra></extra>",
+            ))
+            fig_pie.update_layout(
+                **layout(margin=dict(t=8, b=8, l=8, r=8)),
+                height=250, showlegend=True,
+                legend=dict(
+                    orientation="v", x=1.02, y=0.5,
+                    font=dict(size=10, color=C_TEXT),
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+            )
+            card_header("Cơ Cấu Cổ Đông", "Tỉ lệ sở hữu vốn điều lệ")
+            st.plotly_chart(fig_pie, use_container_width=True, config=PLOT_CFG)
+            card_close()
+
+        with bar_col:
+            _pdf = _period_df[_period_df["div_cash"] > 0].copy()
+            fig_div = go.Figure()
+            fig_div.add_trace(go.Bar(
+                x=_pdf["period"], y=_pdf["total_paid"] / 1e6,
+                name="Đã thanh toán", marker_color=C_GREEN,
+                marker_line_width=0, opacity=0.85,
+                text=(_pdf["total_paid"] / 1e6).map(lambda v: f"{v:.0f}M" if v > 0 else ""),
+                textposition="inside", textfont=dict(size=10, color="#fff"),
+                hovertemplate="<b>%{x}</b><br>Đã trả: %{y:.0f}M ₫<extra></extra>",
+            ))
+            fig_div.add_trace(go.Bar(
+                x=_pdf["period"], y=_pdf["total_remaining"] / 1e6,
+                name="Chưa thanh toán", marker_color=C_RED,
+                marker_line_width=0, opacity=0.85,
+                text=(_pdf["total_remaining"] / 1e6).map(lambda v: f"{v:.0f}M" if v > 0 else ""),
+                textposition="inside", textfont=dict(size=10, color="#fff"),
+                hovertemplate="<b>%{x}</b><br>Còn lại: %{y:.0f}M ₫<extra></extra>",
+            ))
+            fig_div.update_layout(
+                **layout(), height=250, barmode="stack", bargap=0.35,
+                xaxis=xax(tickangle=0),
+                yaxis=yax(title="triệu ₫"),
+            )
+            card_header("Cổ Tức Theo Kỳ", "Xanh = Đã trả · Đỏ = Chưa trả · Kỳ lỗ không hiển thị")
+            st.plotly_chart(fig_div, use_container_width=True, config=PLOT_CFG)
+            card_close()
+
+        # ── Shareholder breakdown table ────────────────────────────────────────
+        if not _detail_df.empty:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            _grp = (
+                _detail_df.groupby("stakeholder")[["div_net", "paid", "remaining"]]
+                .sum().reset_index()
+                .sort_values("div_net", ascending=False)
+            )
+            # Merge ownership %
+            _grp = _grp.merge(
+                _sh_df[["name", "ownership_pct", "capital"]],
+                left_on="stakeholder", right_on="name", how="left"
+            ).drop(columns=["name"])
+
+            _rows_html = ""
+            for _, r in _grp.iterrows():
+                pct_own = f"{r['ownership_pct']*100:.2f}%" if pd.notna(r.get("ownership_pct")) else "—"
+                cap_fmt = f"{r['capital']/1e6:.0f}M" if pd.notna(r.get("capital")) else "—"
+                rem_col = C_RED if r["remaining"] > 0 else C_GREEN
+                _rows_html += (
+                    f'<tr style="border-bottom:1px solid {C_BORDER}">'
+                    f'<td style="padding:8px 12px;color:{C_TEXT}">{r["stakeholder"]}</td>'
+                    f'<td style="padding:8px 12px;color:{C_MUTED};text-align:right">{pct_own}</td>'
+                    f'<td style="padding:8px 12px;color:{C_MUTED};text-align:right">{cap_fmt} ₫</td>'
+                    f'<td style="padding:8px 12px;color:{C_GREEN};text-align:right">{r["div_net"]/1e6:.1f}M ₫</td>'
+                    f'<td style="padding:8px 12px;color:{C_BLUE};text-align:right">{r["paid"]/1e6:.1f}M ₫</td>'
+                    f'<td style="padding:8px 12px;color:{rem_col};text-align:right;font-weight:{"600" if r["remaining"]>0 else "400"}">'
+                    f'{r["remaining"]/1e6:.1f}M ₫</td>'
+                    f'</tr>'
+                )
+
+            st.markdown(
+                f'<div style="background:{C_SURFACE};border:1px solid {C_BORDER};border-radius:10px;'
+                f'overflow:hidden;margin-bottom:8px">'
+                f'<div style="padding:10px 14px 6px;font-size:11px;font-weight:700;'
+                f'letter-spacing:0.5px;color:{C_MUTED};text-transform:uppercase">'
+                f'Chi Tiết Cổ Tức Cộng Dồn Theo Cổ Đông</div>'
+                f'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+                f'<thead><tr style="background:{C_SURFACE2}">'
+                f'<th style="padding:8px 12px;color:{C_MUTED};text-align:left;font-weight:600">Cổ đông</th>'
+                f'<th style="padding:8px 12px;color:{C_MUTED};text-align:right;font-weight:600">Tỉ lệ %</th>'
+                f'<th style="padding:8px 12px;color:{C_MUTED};text-align:right;font-weight:600">Vốn góp</th>'
+                f'<th style="padding:8px 12px;color:{C_MUTED};text-align:right;font-weight:600">Cổ tức tuyên bố</th>'
+                f'<th style="padding:8px 12px;color:{C_MUTED};text-align:right;font-weight:600">Đã nhận</th>'
+                f'<th style="padding:8px 12px;color:{C_MUTED};text-align:right;font-weight:600">Còn lại</th>'
+                f'</tr></thead>'
+                f'<tbody>{_rows_html}</tbody>'
+                f'</table></div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown(
+            f'<div style="background:rgba(107,122,153,0.08);border:1px solid {C_BORDER};'
+            f'border-radius:8px;padding:14px 18px;font-size:12px;color:{C_MUTED}">'
+            f'⚠️ <b>Không tải được dữ liệu cổ tức.</b> Kiểm tra kết nối Google Sheets.</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ════════════════════════════════════ CASH FLOW ═══════════════════════════════
